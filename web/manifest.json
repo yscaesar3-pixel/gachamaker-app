@@ -1,0 +1,32 @@
+{
+  "name": "みんなでガチャメーカー",
+  "short_name": "ガチャメーカー",
+  "description": "みんなで候補を入れて、ガチャでひとつに決めよう！",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#7c4dff",
+  "theme_color": "#ff4fa0",
+  "lang": "ja",
+  "icons": [
+    {
+      "src": "assets/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "assets/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "assets/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

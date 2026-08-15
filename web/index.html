@@ -1,0 +1,1633 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<title>みんなでガチャメーカー</title>
+<link rel="icon" type="image/png" href="assets/icon-192.png">
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#ff4fa0">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ガチャメーカー">
+<meta property="og:title" content="みんなでガチャメーカー">
+<meta property="og:description" content="みんなで候補を入れて、ガチャでひとつに決めよう！">
+<meta property="og:image" content="assets/ogp.png">
+<meta property="og:type" content="website">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@500;700;900&family=DotGothic16&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<style>
+  /* ============================================================
+     デザイントークン
+     コンセプト: ポップでカラフルな縁日ガチャガチャ。
+     キャンディカラーのグラデーション背景に、白いステッカー風カードと
+     くっきりしたハードシャドウのボタンを乗せる、おもちゃ箱のような世界観。
+  ============================================================ */
+  :root{
+    /* キャンディカラー(背景・アクセント) */
+    --pink: #ff4fa0;
+    --pink-deep: #e02f81;
+    --purple: #7c4dff;
+    --purple-deep: #5f35d6;
+    --yellow: #ffcc33;
+    --yellow-deep: #e6a800;
+    --mint: #1fe3a6;
+    --sky: #2fc6ff;
+
+    /* インク(濃い紫)・紙(明るいカード面) */
+    --ink: #2a1b4d;
+    --ink-dim: #7c6ba3;
+    --paper: #fffdf8;
+    --paper-alt: #f3ecff;
+    --line: rgba(42,27,77,0.14);
+
+    /* 明るい背景の上に直接乗る文字(見出し等)用 */
+    --on-grad: #ffffff;
+
+    --shadow: 0 10px 26px rgba(42,27,77,0.22);
+    --hard-shadow: 4px 4px 0 var(--ink);
+    --radius-lg: 28px;
+    --radius-md: 18px;
+    --radius-sm: 14px;
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  *{ box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html,body{ height:100%; }
+  body{
+    margin:0;
+    background:
+      radial-gradient(60% 45% at 15% 0%, rgba(255,255,255,0.35), transparent 60%),
+      radial-gradient(50% 40% at 100% 15%, rgba(255,255,255,0.22), transparent 55%),
+      linear-gradient(165deg, var(--pink) 0%, var(--purple) 55%, var(--sky) 100%);
+    background-attachment: fixed;
+    color: var(--ink);
+    font-family: "Zen Maru Gothic", "Noto Sans JP", sans-serif;
+    font-weight: 500;
+    overflow-x: hidden;
+    min-height: 100%;
+  }
+  /* 背景に散らす水玉(ポップな紙吹雪ドット) */
+  body::before{
+    content:"";
+    position:fixed; inset:0; z-index:-1; pointer-events:none;
+    background-image:
+      radial-gradient(rgba(255,255,255,0.5) 3px, transparent 3.5px),
+      radial-gradient(rgba(255,255,255,0.35) 2.5px, transparent 3px);
+    background-size: 64px 64px, 40px 40px;
+    background-position: 0 0, 20px 30px;
+  }
+  h1,h2,h3{ font-weight: 900; margin: 0; letter-spacing: .02em; }
+  p{ margin: 0; }
+  button{ font-family: inherit; }
+  input{ font-family: inherit; }
+
+  .mono{ font-family: "DotGothic16", monospace; letter-spacing: .12em; }
+
+  /* ---------- レイアウト ---------- */
+  .app{
+    max-width: 480px;
+    margin: 0 auto;
+    min-height: 100dvh;
+    padding: calc(20px + var(--safe-top)) 20px calc(24px + var(--safe-bottom));
+    display: flex;
+    flex-direction: column;
+  }
+  .screen{ display:none; flex:1; flex-direction:column; animation: fadeIn .25s ease; }
+  .screen.active{ display:flex; }
+  @keyframes fadeIn{ from{opacity:0; transform:translateY(6px)} to{opacity:1; transform:none} }
+
+  .spacer{ flex:1; }
+
+  /* ---------- タイポ ---------- */
+  .eyebrow{
+    font-family: "DotGothic16", monospace;
+    font-size: 12px;
+    letter-spacing: .28em;
+    color: var(--on-grad);
+    opacity:.85;
+    margin-bottom: 6px;
+  }
+  .title-xl{
+    font-size: 34px; line-height: 1.25; color: var(--on-grad);
+    text-shadow: 3px 3px 0 var(--ink);
+  }
+  .title-lg{ font-size: 26px; line-height: 1.3; color: var(--on-grad); text-shadow: 2px 2px 0 var(--ink); }
+  .lead{ color: var(--on-grad); opacity:.92; font-size: 15px; line-height: 1.7; margin-top: 10px; }
+
+  /* カード内(白背景)で使う見出しは濃色に切り替える */
+  .card .title-lg, .card .title-xl{ color: var(--ink); text-shadow:none; }
+  .card .lead{ color: var(--ink-dim); opacity:1; }
+
+  /* ---------- ボタン(くっきりハードシャドウ・押し込み感) ---------- */
+  .btn{
+    appearance:none; cursor:pointer;
+    border-radius: 999px;
+    padding: 16px 24px;
+    font-size: 16px;
+    font-weight: 900;
+    font-family: inherit;
+    display:flex; align-items:center; justify-content:center; gap:8px;
+    transition: transform .1s ease, box-shadow .1s ease;
+    width: 100%;
+    border: 2.5px solid var(--ink);
+    box-shadow: var(--hard-shadow);
+  }
+  .btn:active{ transform: translate(3px,3px); box-shadow: 0 0 0 var(--ink); }
+  .btn:disabled{ opacity:.4; cursor:not-allowed; transform:none; box-shadow: var(--hard-shadow); }
+  .btn-primary{
+    background: var(--pink);
+    color: #fff;
+  }
+  .btn-secondary{
+    background: var(--paper);
+    color: var(--ink);
+  }
+  .btn-ghost{
+    background: transparent;
+    color: var(--on-grad);
+    border-color: transparent;
+    box-shadow: none;
+    padding: 12px;
+    opacity:.85;
+  }
+  .btn-ghost:active{ transform: scale(.97); box-shadow:none; }
+  .btn-sm{ padding: 9px 16px; font-size: 14px; width:auto; box-shadow: 3px 3px 0 var(--ink); }
+  .btn-danger{
+    background: #fff0f5;
+    color: var(--pink-deep);
+    border-color: var(--pink-deep);
+  }
+  .btn-row{ display:flex; gap:10px; }
+
+  /* カード内のボタンは背景が白いので、文字色を読める濃さに */
+  .card .btn-ghost{ color: var(--ink-dim); }
+
+  /* ---------- カード / 入力(ステッカー風の白いカード) ---------- */
+  .card{
+    background: var(--paper);
+    border: 2.5px solid var(--ink);
+    border-radius: var(--radius-lg);
+    padding: 22px;
+    box-shadow: 6px 6px 0 rgba(42,27,77,0.85);
+  }
+  .field{ margin-bottom: 18px; }
+  .field label{
+    display:block; font-size: 13px; color: var(--ink-dim); margin-bottom:8px; font-weight:700;
+  }
+  .field input[type=text]{
+    width:100%;
+    background: var(--paper-alt);
+    border: 2px solid var(--line);
+    border-radius: var(--radius-sm);
+    padding: 14px 16px;
+    color: var(--ink);
+    font-size: 16px;
+    outline:none;
+  }
+  .field input[type=text]:focus{ border-color: var(--purple); }
+  .hint{ font-size:12px; color: var(--ink-dim); margin-top:6px; }
+  .error-text{ font-size:13px; color:#e0356f; margin-top:8px; min-height:16px; font-weight:700; }
+
+  .choice-group{ display:flex; gap:10px; }
+  .choice{
+    flex:1; text-align:center; padding:14px 8px; border-radius: var(--radius-sm);
+    border: 2px solid var(--line); background: var(--paper-alt); cursor:pointer; font-weight:700; font-size:14px;
+    color: var(--ink-dim);
+    transition: all .1s ease;
+  }
+  .choice.selected{ border-color: var(--purple); color: #fff; background: var(--purple); }
+
+  details.adv{ margin-top: 6px; }
+  details.adv summary{
+    cursor:pointer; list-style:none; color: var(--purple); font-weight:700; font-size:14px;
+    padding: 10px 0; display:flex; align-items:center; gap:6px;
+  }
+  details.adv summary::-webkit-details-marker{ display:none; }
+  details.adv summary::before{ content:"▸"; transition: transform .15s; }
+  details.adv[open] summary::before{ transform: rotate(90deg); }
+
+  /* ---------- HOME ---------- */
+  .home-hero{ display:flex; flex-direction:column; align-items:center; text-align:center; margin: 10px 0 30px; }
+  .home-mascot{ width: 220px; }
+  .home-mascot .mascot-img{
+    width:100%; display:block;
+    filter: drop-shadow(6px 6px 0 rgba(42,27,77,0.85));
+  }
+
+  /* ---------- ガチャマシン(シグネチャー要素・実画像+動的カプセル重ね) ---------- */
+  .machine-wrap{ display:flex; flex-direction:column; align-items:center; padding: 8px 0 18px; }
+  .machine{ position:relative; width: 230px; }
+  .machine .mascot-img{
+    width:100%; display:block;
+    filter: drop-shadow(6px 6px 0 rgba(42,27,77,0.85));
+  }
+  .machine.phase-intro{ animation: introBounce .5s ease; }
+  @keyframes introBounce{
+    0%{ transform: scale(.8); opacity:0; }
+    60%{ transform: scale(1.06); opacity:1; }
+    100%{ transform: scale(1); }
+  }
+  /* 攪拌フェーズ: 本体はごく控えめな振動のみ(ブーンと震える程度)。
+     主役はカプセル1個ずつの動きで、そちらはJS側でtransformを
+     ランダムに変え続け、下のtransitionでなめらかに補間する。 */
+  .machine.phase-agitate .mascot-img,
+  .machine.phase-agitate .crank-real{ animation: agitateShake .1s infinite; }
+  @keyframes agitateShake{
+    0%,100%{ transform: translate(0,0) rotate(0deg); }
+    50%{ transform: translate(-1.5px,1px) rotate(-0.6deg); }
+  }
+  /* カプセルのサイズはJS側で候補数に応じて --capsule-size を変えることで、
+     増えるほど1個ずつ小さくパッキングされていく(実物のガチャと同じ見え方) */
+  /* ハンドル本体: 「ハンドルなし」の本体画像の上に、ハンドル単体画像を
+     コントロールパネルの位置に重ねて配置し、この要素だけを回転させる。
+     transform-originを軸(ハンドル画像自身の中の丸い付け根の位置)に合わせてあるので、
+     回転してもハンドルが本体から浮いたりズレたりしない。 */
+  .crank-real{
+    position:absolute; width:62%; left:24%; top:46%;
+    transform-origin: 41% 57%;
+    pointer-events:none;
+  }
+  .crank-real.spinning{ animation: crankSpin 1s cubic-bezier(.65,0,.35,1) 1; }
+  @keyframes crankSpin{
+    0%{ transform: rotate(0deg); }
+    70%{ transform: rotate(345deg); }
+    100%{ transform: rotate(360deg); }
+  }
+
+  .ejected-capsule{
+    position:fixed; left:0; top:0; z-index:40; pointer-events:none;
+    filter: drop-shadow(4px 4px 0 rgba(42,27,77,0.7));
+  }
+  /* ドーム(ガラス球)の内側に収まるよう、実画像を目視計測して範囲を指定 */
+  .capsules{
+    position:absolute; left:16%; right:14%; top:23%; bottom:54%;
+    display:flex; flex-wrap:wrap-reverse; align-content:flex-start; justify-content:center; gap:2px;
+    overflow:hidden;
+  }
+  .capsule-img{
+    width: var(--capsule-size, 15%); aspect-ratio:1/1; object-fit:contain;
+    animation: pop .25s cubic-bezier(.34,1.56,.64,1);
+    filter: drop-shadow(0 2px 2px rgba(0,0,0,0.25));
+    transition: transform .38s cubic-bezier(.45,0,.55,1), width .3s ease;
+  }
+  @keyframes pop{ from{ transform: scale(0); } to{ transform: scale(1); } }
+
+  .capsule-count{
+    text-align:center; margin-top:14px; font-size: 14px; color: var(--on-grad); opacity:.92;
+  }
+  .capsule-count b{ color: var(--yellow); font-size: 22px; font-family:"DotGothic16",monospace; -webkit-text-stroke: 1px var(--ink); }
+
+  /* 候補投稿時、カプセルがドームの上から物理演算で降ってくる演出(位置はJS側で毎フレーム計算) */
+  .falling-capsule{
+    position:absolute; top:0; left:0; width:15%;
+    z-index: 3;
+    filter: drop-shadow(0 2px 2px rgba(0,0,0,0.25));
+    will-change: transform;
+  }
+
+  /* ---------- 参加者 / トップバー ---------- */
+  .room-topbar{ display:flex; align-items:center; justify-content:space-between; margin-bottom: 6px; }
+  .room-name{ font-size:19px; font-weight:900; color: var(--on-grad); text-shadow: 2px 2px 0 var(--ink); }
+  .pill{
+    display:inline-flex; align-items:center; gap:5px;
+    background: var(--paper); border:2px solid var(--ink); border-radius:999px; padding:6px 12px; font-size:13px; color:var(--ink); font-weight:700;
+  }
+
+  /* ---------- 候補入力 ---------- */
+  .candidate-input-row{ display:flex; gap:8px; margin: 14px 0; }
+  .candidate-input-row input{ flex:1; }
+  .icon-btn{
+    width:52px; height:52px; border-radius: var(--radius-sm); flex-shrink:0;
+    background: var(--pink);
+    border: 2.5px solid var(--ink);
+    box-shadow: var(--hard-shadow);
+    color:#fff; font-size:22px; font-weight:900; cursor:pointer;
+  }
+  .icon-btn:active{ transform: translate(3px,3px); box-shadow:0 0 0 var(--ink); }
+  .icon-btn:disabled{ opacity:.35; }
+
+  .candidate-list{ display:flex; flex-direction:column; gap:8px; margin-top: 4px; max-height: 30vh; overflow-y:auto; }
+  .candidate-row{
+    display:flex; align-items:center; justify-content:space-between;
+    background: var(--paper); border:2px solid var(--ink); border-radius: var(--radius-sm);
+    padding: 12px 14px;
+  }
+  .candidate-text{ font-weight:700; font-size:15px; word-break:break-all; color: var(--ink); }
+  .candidate-sub{ font-size:11px; color:var(--ink-dim); margin-top:2px; }
+  .candidate-del{ background:none; border:none; color:var(--ink-dim); font-size:18px; padding:4px 8px; cursor:pointer; }
+  .secret-note{
+    text-align:center; color: var(--on-grad); opacity:.9; font-size:13px; padding: 18px 0;
+  }
+
+  .participant-strip{ display:flex; gap:8px; overflow-x:auto; padding: 4px 0 2px; }
+  .avatar{
+    display:flex; flex-direction:column; align-items:center; gap:4px; flex-shrink:0; width:52px;
+  }
+  .avatar-dot{
+    width:40px; height:40px; border-radius:50%; background: var(--paper);
+    display:flex; align-items:center; justify-content:center; font-size:16px; font-weight:900; color:var(--ink);
+    border: 2.5px solid var(--ink); position:relative;
+  }
+  .avatar-dot.online{ border-color: var(--mint); box-shadow: 0 0 0 2px rgba(31,227,166,0.3); }
+  .avatar-dot.host::after{ content:"👑"; position:absolute; top:-10px; font-size:13px; }
+  .avatar-name{ font-size:10px; color:var(--on-grad); text-align:center; max-width:52px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+  /* ---------- トースト / モーダル ---------- */
+  .toast{
+    position: fixed; left:50%; top: calc(16px + var(--safe-top)); transform: translateX(-50%) translateY(-20px);
+    background: var(--ink); color:#fff;
+    padding: 12px 20px; border-radius: 999px; font-size:14px; font-weight:700;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.3); opacity:0; transition: all .25s ease; z-index: 50; white-space:nowrap;
+  }
+  .toast.show{ opacity:1; transform: translateX(-50%) translateY(0); }
+
+  .modal-backdrop{
+    position:fixed; inset:0; background:rgba(42,27,77,0.55); display:none;
+    align-items:flex-end; justify-content:center; z-index:60; backdrop-filter: blur(2px);
+  }
+  .modal-backdrop.show{ display:flex; }
+  .modal{
+    background: var(--ink); color:#fff; border-radius: 24px 24px 0 0;
+    padding: 26px 22px calc(26px + var(--safe-bottom)); width:100%; max-width:480px;
+    box-shadow: 0 -10px 30px rgba(0,0,0,0.4);
+  }
+  .modal h3{ font-size:18px; margin-bottom:10px; color:#fff; }
+  .modal p{ color: #cbbfe8; font-size:14px; line-height:1.6; margin-bottom:20px; }
+  .modal-check{ display:flex; align-items:center; gap:10px; margin-bottom:20px; font-size:14px; color:#cbbfe8; }
+
+  /* ---------- 共有画面 ---------- */
+  .share-code{
+    text-align:center; font-size:44px; font-weight:900; letter-spacing:.15em;
+    padding: 22px 0; color: var(--purple);
+  }
+  .qr-wrap{ display:flex; justify-content:center; padding: 6px 0 20px; }
+  .qr-wrap canvas, .qr-wrap img{ border-radius: 16px; background:#fff; padding:10px; border:2.5px solid var(--ink); }
+  .share-actions{ display:flex; flex-direction:column; gap:10px; margin-top: 8px; }
+
+  /* ---------- 抽選演出 ---------- */
+  .draw-screen{ align-items:center; justify-content:center; text-align:center; }
+  .draw-caption{ margin-top: 24px; font-size:15px; color: var(--on-grad); min-height: 20px; font-weight:700; }
+
+  /* ---------- 開封 ---------- */
+  .capsule-big{
+    width: 140px; margin: 20px auto;
+    display:flex; align-items:center; justify-content:center; cursor:pointer;
+    animation: floaty 2.4s ease-in-out infinite;
+    filter: drop-shadow(5px 5px 0 rgba(42,27,77,0.85));
+  }
+  .capsule-big img{ width:100%; display:block; }
+  @keyframes floaty{ 0%,100%{ transform: translateY(0);} 50%{ transform: translateY(-10px);} }
+  .capsule-big:active{ transform: scale(.94); }
+
+  .ready-count{ font-size: 40px; font-weight:900; color:var(--on-grad); text-shadow:2px 2px 0 var(--ink); font-family:"DotGothic16",monospace; margin: 20px 0; }
+
+  /* ---------- 結果 ---------- */
+  .result-screen{ align-items:center; justify-content:center; text-align:center; }
+  .result-emoji{ font-size:44px; margin-bottom: 6px; }
+  .result-text{
+    font-size: 38px; font-weight:900; line-height:1.3; color:var(--on-grad);
+    text-shadow: 3px 3px 0 var(--ink);
+    padding: 10px 12px; word-break: break-word;
+  }
+  .result-sub{ margin-top:10px; color:var(--on-grad); opacity:.9; font-size:14px; }
+  .confetti{ position:fixed; inset:0; pointer-events:none; overflow:hidden; z-index:5; }
+  .confetti img{
+    position:absolute; top:-30px; width:28px; height:auto; opacity:.95;
+    animation: fall linear forwards;
+  }
+  @keyframes fall{ to{ transform: translateY(110vh) rotate(360deg); opacity:0; } }
+
+  /* ---------- 接続状態 ---------- */
+  .conn-banner{
+    text-align:center; font-size:12px; color: var(--on-grad); opacity:.8; padding: 6px 0;
+  }
+
+  ::-webkit-scrollbar{ width:0; height:0; }
+</style>
+</head>
+<body>
+
+<div class="toast" id="toast"></div>
+<div class="confetti" id="confetti"></div>
+
+<div class="modal-backdrop" id="modalBackdrop">
+  <div class="modal" id="modalBody"></div>
+</div>
+
+<div class="app">
+
+  <!-- ============ HOME ============ -->
+  <section class="screen active" id="screen-home">
+    <div class="spacer"></div>
+    <div class="home-hero">
+      <div class="home-mascot">
+        <img class="mascot-img" src="assets/mascot_full.png" alt="ガチャマシン">
+      </div>
+      <div class="eyebrow">MINNA DE GACHA MAKER</div>
+      <h1 class="title-xl">みんなで<br>ガチャメーカー</h1>
+      <p class="lead">みんなで候補を入れて、<br>ガチャでひとつに決めよう！</p>
+    </div>
+    <div class="spacer"></div>
+    <button class="btn btn-primary" id="btnGoCreate">🎰 ガチャを作る</button>
+    <div style="height:10px"></div>
+    <button class="btn btn-secondary" id="btnGoJoin">🎟️ ガチャに参加する</button>
+  </section>
+
+  <!-- ============ ガチャ作成 ============ -->
+  <section class="screen" id="screen-create">
+    <div class="eyebrow">CREATE</div>
+    <h2 class="title-lg">ガチャを作る</h2>
+    <div style="height:20px"></div>
+    <div class="card">
+      <div class="field">
+        <label>ガチャの名前（任意）</label>
+        <input type="text" id="inputRoomName" placeholder="みんなでガチャメーカー" maxlength="30">
+      </div>
+      <div class="field">
+        <label>候補をみんなに見せる？</label>
+        <div class="choice-group" id="choiceShowCandidates">
+          <div class="choice selected" data-value="true">見せる</div>
+          <div class="choice" data-value="false">抽選まで秘密</div>
+        </div>
+      </div>
+
+      <details class="adv">
+        <summary>詳細設定</summary>
+        <div style="height:8px"></div>
+        <div class="field">
+          <label>1人何個まで入れられる？</label>
+          <div class="choice-group" id="choiceMaxPerPerson" style="flex-wrap:wrap; gap:8px;">
+            <div class="choice" data-value="1" style="flex:0 0 30%">1個</div>
+            <div class="choice" data-value="2" style="flex:0 0 30%">2個</div>
+            <div class="choice" data-value="3" style="flex:0 0 30%">3個</div>
+            <div class="choice" data-value="5" style="flex:0 0 30%">5個</div>
+            <div class="choice" data-value="10" style="flex:0 0 30%">10個</div>
+            <div class="choice selected" data-value="null" style="flex:0 0 30%">無制限</div>
+          </div>
+        </div>
+        <div class="field">
+          <label>誰が入れたか表示する？</label>
+          <div class="choice-group" id="choiceShowSubmitter">
+            <div class="choice selected" data-value="false">隠す</div>
+            <div class="choice" data-value="true">表示する</div>
+          </div>
+        </div>
+        <div class="field">
+          <label>どうやってカプセルを開ける？</label>
+          <div class="choice-group" id="choiceOpenMode" style="flex-direction:column;">
+            <div class="choice selected" data-value="own_pace" style="flex:none; text-align:left;">自分のタイミングで開ける</div>
+            <div class="choice" data-value="all_together" style="flex:none; text-align:left;">みんなで一緒に開ける</div>
+          </div>
+        </div>
+      </details>
+    </div>
+    <div class="spacer"></div>
+    <button class="btn btn-primary" id="btnCreateNext">つぎへ</button>
+    <div style="height:8px"></div>
+    <button class="btn btn-ghost" id="btnCreateBack">もどる</button>
+  </section>
+
+  <!-- ============ ホスト名入力 ============ -->
+  <section class="screen" id="screen-hostname">
+    <div class="eyebrow">YOUR NAME</div>
+    <h2 class="title-lg">あなたの名前を<br>教えて！</h2>
+    <div style="height:20px"></div>
+    <div class="card">
+      <div class="field">
+        <label>ニックネーム</label>
+        <input type="text" id="inputHostNickname" placeholder="例：ゆうた" maxlength="15">
+      </div>
+      <div class="error-text" id="hostNameError"></div>
+    </div>
+    <div class="spacer"></div>
+    <button class="btn btn-primary" id="btnHostNameNext">ガチャを作る</button>
+    <div style="height:8px"></div>
+    <button class="btn btn-ghost" id="btnHostNameBack">もどる</button>
+  </section>
+
+  <!-- ============ 共有コード入力(参加) ============ -->
+  <section class="screen" id="screen-joincode">
+    <div class="eyebrow">JOIN</div>
+    <h2 class="title-lg">ガチャに参加する</h2>
+    <div style="height:20px"></div>
+    <div class="card">
+      <div class="field">
+        <label>共有コード</label>
+        <input type="text" id="inputShareCode" placeholder="例：7K3P9M" maxlength="6" class="mono" style="text-transform:uppercase; letter-spacing:.2em; font-size:20px;">
+      </div>
+      <div class="error-text" id="joinCodeError"></div>
+    </div>
+    <div class="spacer"></div>
+    <button class="btn btn-primary" id="btnJoinCodeNext">つぎへ</button>
+    <div style="height:8px"></div>
+    <button class="btn btn-ghost" id="btnJoinCodeBack">もどる</button>
+  </section>
+
+  <!-- ============ ニックネーム入力(参加) ============ -->
+  <section class="screen" id="screen-joinnickname">
+    <div class="eyebrow" id="joinRoomEyebrow">JOIN</div>
+    <h2 class="title-lg" id="joinRoomName">ガチャに参加</h2>
+    <div style="height:20px"></div>
+    <div class="card">
+      <div class="field">
+        <label>あなたのニックネーム</label>
+        <input type="text" id="inputJoinNickname" placeholder="例：ゆうた" maxlength="15">
+      </div>
+      <div class="error-text" id="joinNicknameError"></div>
+    </div>
+    <div class="spacer"></div>
+    <button class="btn btn-primary" id="btnJoinNicknameNext">参加する</button>
+    <div style="height:8px"></div>
+    <button class="btn btn-ghost" id="btnJoinNicknameBack">もどる</button>
+  </section>
+
+  <!-- ============ 共有(作成直後・ホストのみ) ============ -->
+  <section class="screen" id="screen-share">
+    <div class="eyebrow">READY</div>
+    <h2 class="title-lg">ガチャに招待</h2>
+    <div style="height:14px"></div>
+    <div class="card">
+      <p class="lead" style="margin-top:0; text-align:center;" id="shareRoomName">-</p>
+      <div class="share-code mono" id="shareCodeText">------</div>
+      <div class="qr-wrap"><div id="qrCanvas"></div></div>
+      <div class="share-actions">
+        <button class="btn btn-secondary" id="btnCopyCode">コードをコピー</button>
+        <button class="btn btn-secondary" id="btnCopyUrl">参加URLをコピー</button>
+        <button class="btn btn-secondary" id="btnShareNative">その他の方法で共有</button>
+      </div>
+    </div>
+    <div class="spacer"></div>
+    <button class="btn btn-primary" id="btnShareEnter">ルームに入る</button>
+  </section>
+
+  <!-- ============ 候補受付ルーム ============ -->
+  <section class="screen" id="screen-room">
+    <div class="conn-banner" id="connBanner"></div>
+    <div class="room-topbar">
+      <div class="room-name" id="roomTitle">-</div>
+      <button class="pill" id="btnOpenMembers" style="border:none; cursor:pointer;">👥 <span id="participantCount">0</span></button>
+    </div>
+    <div class="participant-strip" id="participantStrip"></div>
+
+    <div class="machine-wrap">
+      <div class="machine" id="roomMachine">
+        <img class="mascot-img" src="assets/mascot_empty.png" alt="ガチャマシン">
+        <div class="capsules" id="roomCapsules"></div>
+        <img class="crank-real" src="assets/handle.png" alt="">
+      </div>
+      <div class="capsule-count"><b id="candidateCountText">0</b> 個のカプセル</div>
+    </div>
+
+    <div class="candidate-input-row">
+      <input type="text" id="inputCandidate" placeholder="候補を入力…" maxlength="30">
+      <button class="icon-btn" id="btnAddCandidate">＋</button>
+    </div>
+    <div class="error-text" id="candidateError"></div>
+
+    <div class="candidate-list" id="candidateList"></div>
+    <p class="secret-note" id="secretNote" style="display:none;">候補は抽選まで秘密です🤫<br>自分の候補だけここに表示されます</p>
+
+    <div class="spacer"></div>
+    <div id="hostControls" style="display:none;">
+      <div style="height:6px"></div>
+      <button class="btn btn-primary" id="btnStartDraw">🎰 ガチャを回す！</button>
+      <p class="hint" style="text-align:center; margin-top:8px;">押すと候補の受付が締め切られます</p>
+    </div>
+    <button class="btn btn-ghost" id="btnLeaveRoom">ルームから退出</button>
+  </section>
+
+  <!-- ============ 抽選演出 ============ -->
+  <section class="screen draw-screen" id="screen-draw">
+    <div class="machine" id="drawMachine">
+      <img class="mascot-img" src="assets/mascot_empty.png" alt="ガチャマシン">
+      <div class="capsules" id="drawCapsules"></div>
+      <img class="crank-real" id="crankReal" src="assets/handle.png" alt="">
+    </div>
+    <div class="draw-caption" id="drawCaption"></div>
+  </section>
+
+  <!-- ============ カプセル開封: own_pace ============ -->
+  <section class="screen result-screen" id="screen-open-own">
+    <h2 class="title-lg">カプセルが出た！</h2>
+    <div class="capsule-big" id="capsuleBigOwn"><img id="capsuleBigOwnImg" src="assets/capsule_mint.png" alt="カプセル"></div>
+    <p class="lead">タップして開けよう</p>
+  </section>
+
+  <!-- ============ カプセル開封: all_together ============ -->
+  <section class="screen result-screen" id="screen-open-together">
+    <h2 class="title-lg">みんなで開けよう！</h2>
+    <div class="capsule-big" id="capsuleBigTogether" style="cursor:default;"><img id="capsuleBigTogetherImg" src="assets/capsule_purple.png" alt="カプセル"></div>
+    <div class="ready-count"><span id="readyCount">0</span> / <span id="readyTarget">0</span> 人 準備OK</div>
+    <button class="btn btn-primary" id="btnMarkReady">準備OK！</button>
+  </section>
+
+  <!-- ============ 結果 ============ -->
+  <section class="screen result-screen" id="screen-result">
+    <div class="result-emoji">🎉</div>
+    <h2 class="title-lg" style="color:var(--yellow);">結果</h2>
+    <div class="result-text" id="resultText">-</div>
+    <p class="result-sub" id="resultSub"></p>
+    <div class="spacer"></div>
+    <div id="resultHostControls" style="display:none; width:100%;">
+      <button class="btn btn-primary" id="btnRestartDraw">もう一度</button>
+      <div style="height:10px"></div>
+      <button class="btn btn-danger" id="btnFinishRoom">ガチャを終了</button>
+    </div>
+    <div id="resultParticipantNote" style="display:none;">
+      <p class="hint" style="text-align:center;">ホストの操作を待っています…</p>
+    </div>
+  </section>
+
+  <!-- ============ ガチャ終了(Web専用の終着画面) ============ -->
+  <section class="screen result-screen" id="screen-finished">
+    <div class="result-emoji">👋</div>
+    <h2 class="title-lg">ガチャが終了しました</h2>
+    <p class="lead">このルームにはもう戻れません。<br>ご参加ありがとうございました！</p>
+    <div class="spacer"></div>
+    <button class="btn btn-primary" id="btnFinishedGoHome">ホームに戻る</button>
+  </section>
+
+</div>
+
+<script>
+/* ============================================================
+   設定
+   ここにSupabaseプロジェクトの情報を入れてください。
+============================================================ */
+const CONFIG = {
+  SUPABASE_URL: "https://arpkjnbnyyytdcbzeitk.supabase.co",
+  SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFycGtqbmJueXl5dGRjYnplaXRrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM4MDk1NTgsImV4cCI6MjA5OTM4NTU1OH0.wMED0yZ1j6ygAIIPr5zw9As25xx9QqL0YbSICaK6UVo",
+  // Web版はホスト機能なし。iOSアプリ側でこのフラグをtrueにする想定。
+  IS_HOST_CAPABLE_PLATFORM: true,
+  WEB_JOIN_BASE_URL: "https://example.com/", // 参加URLの生成に使う(共有コードをこの後ろに付ける想定)
+};
+
+const FUNCTIONS_BASE = CONFIG.SUPABASE_URL + "/functions/v1";
+
+/* ============================================================
+   状態
+============================================================ */
+const STORAGE_TOKEN_KEY = "gacha_participant_token";
+const STORAGE_ROOM_KEY = "gacha_room_id";
+
+let state = {
+  token: localStorage.getItem(STORAGE_TOKEN_KEY) || null,
+  roomId: localStorage.getItem(STORAGE_ROOM_KEY) || null,
+  room: null,
+  participants: [],
+  candidates: [],
+  yourParticipantId: null,
+  channel: null,
+  heartbeatTimer: null,
+  pendingCreateSettings: null,
+};
+
+/* ============================================================
+   ユーティリティ
+============================================================ */
+function $(id){ return document.getElementById(id); }
+
+function showScreen(id){
+  document.querySelectorAll(".screen").forEach(el => el.classList.remove("active"));
+  $(id).classList.add("active");
+}
+
+function showToast(msg){
+  const t = $("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  clearTimeout(showToast._timer);
+  showToast._timer = setTimeout(() => t.classList.remove("show"), 2400);
+}
+
+function vibrate(ms){
+  if (navigator.vibrate) navigator.vibrate(ms);
+}
+
+async function callFunction(name, body){
+  if (CONFIG.SUPABASE_URL.includes("YOUR-PROJECT-REF")){
+    const err = { code: "config_missing", message: "CONFIGにSupabaseの情報がまだ設定されていません" };
+    console.error("[gacha]", err.message);
+    throw err;
+  }
+  const headers = {
+    "Content-Type": "application/json",
+    "Authorization": `Bearer ${CONFIG.SUPABASE_ANON_KEY}`,
+  };
+  if (state.token) headers["x-participant-token"] = state.token;
+  let res;
+  try{
+    res = await fetch(`${FUNCTIONS_BASE}/${name}`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body || {}),
+    });
+  }catch(e){
+    throw { code: "network_error", message: "うまく送れませんでした。もう一度試してみてね" };
+  }
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok){
+    throw (json.error || { code: "unknown_error", message: "うまく送れませんでした。もう一度試してみてね" });
+  }
+  return json;
+}
+
+function saveSession(token, roomId){
+  state.token = token;
+  state.roomId = roomId;
+  localStorage.setItem(STORAGE_TOKEN_KEY, token);
+  localStorage.setItem(STORAGE_ROOM_KEY, roomId);
+}
+function clearSession(){
+  state.token = null;
+  state.roomId = null;
+  localStorage.removeItem(STORAGE_TOKEN_KEY);
+  localStorage.removeItem(STORAGE_ROOM_KEY);
+}
+
+const CAPSULE_IMAGES = [
+  "assets/capsule_pink.png",
+  "assets/capsule_yellow.png",
+  "assets/capsule_mint.png",
+  "assets/capsule_purple.png",
+  "assets/capsule_sky.png",
+];
+function capsuleImage(seed){
+  return CAPSULE_IMAGES[seed % CAPSULE_IMAGES.length];
+}
+// 候補数が増えるほど1個あたりを小さくして、ドーム内に収まる個数を増やす
+function capsuleSizeForCount(count){
+  if (count <= 12) return 16;
+  if (count <= 24) return 12.5;
+  if (count <= 40) return 10;
+  if (count <= 60) return 8;
+  if (count <= 90) return 6.5;
+  return 5.5;
+}
+function renderCapsules(container, count){
+  const el = typeof container === "string" ? $(container) : container;
+  el.style.setProperty("--capsule-size", capsuleSizeForCount(count) + "%");
+  const current = el.children.length;
+  if (count > current){
+    for (let i = current; i < Math.min(count, 150); i++){
+      const c = document.createElement("img");
+      c.className = "capsule-img";
+      c.src = capsuleImage(i);
+      c.alt = "";
+      el.appendChild(c);
+    }
+  } else if (count < current){
+    while (el.children.length > count) el.removeChild(el.lastChild);
+  }
+}
+
+/* ============================================================
+   Supabaseクライアント & Realtime購読
+============================================================ */
+// 変数名は "supabase" にすると、CDNが公開するグローバル変数 window.supabase と
+// 名前が衝突して構文エラーになるため、"supabaseClient" にしている。
+const supabaseClient = (() => {
+  try{
+    if (!window.supabase || !window.supabase.createClient){
+      throw new Error("supabase-jsの読み込みに失敗しました");
+    }
+    return window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
+  }catch(e){
+    console.error("[gacha] Supabaseクライアントの初期化に失敗しました。Realtime同期は無効になります。", e);
+    return null;
+  }
+})();
+
+function subscribeRoom(roomId){
+  if (!supabaseClient){
+    console.warn("[gacha] Realtime未接続のため、購読をスキップします(手動更新のみ)");
+    return;
+  }
+  if (state.channel){
+    supabaseClient.removeChannel(state.channel);
+    state.channel = null;
+  }
+  const channel = supabaseClient.channel(`room:${roomId}`, { config: { broadcast: { self: false } } });
+
+  channel
+    .on("broadcast", { event: "participant_joined" }, (msg) => {
+      showToast(`${msg.payload.nickname}さんが参加しました！`);
+      refreshResume();
+    })
+    .on("broadcast", { event: "participant_left" }, () => {
+      refreshResume();
+    })
+    .on("broadcast", { event: "participant_kicked" }, (msg) => {
+      if (msg.payload.participantId === state.yourParticipantId){
+        showToast("ホストによってルームから外されました");
+        exitToHome();
+        return;
+      }
+      refreshResume();
+    })
+    .on("broadcast", { event: "participant_online_changed" }, () => refreshResume())
+    .on("broadcast", { event: "nickname_changed" }, () => refreshResume())
+    .on("broadcast", { event: "candidate_added" }, async () => { await spawnFallingCapsule(); refreshResume(); })
+    .on("broadcast", { event: "candidate_removed" }, () => refreshResume())
+    .on("broadcast", { event: "room_status_changed" }, (msg) => {
+      if (msg.payload.status === "finished"){
+        showScreen("screen-finished");
+        clearSession();
+        stopHeartbeat();
+        return;
+      }
+      if (msg.payload.status === "accepting"){
+        refreshResume();
+      }
+    })
+    .on("broadcast", { event: "draw_started" }, (msg) => {
+      playDrawAnimation(msg.payload);
+    })
+    .on("broadcast", { event: "ready_count_changed" }, (msg) => {
+      $("readyCount").textContent = msg.payload.readyCount;
+      $("readyTarget").textContent = msg.payload.targetCount;
+    })
+    .on("broadcast", { event: "draw_opened" }, (msg) => {
+      showResult(msg.payload.candidateText, msg.payload.submitterNickname);
+    })
+    .subscribe();
+
+  state.channel = channel;
+}
+
+/* ============================================================
+   ハートビート(オンライン維持)
+============================================================ */
+function startHeartbeat(){
+  stopHeartbeat();
+  const send = () => { if (document.visibilityState === "visible") callFunction("heartbeat").catch(()=>{}); };
+  send();
+  state.heartbeatTimer = setInterval(send, 15000);
+  document.addEventListener("visibilitychange", onVisibilityChange);
+}
+function stopHeartbeat(){
+  if (state.heartbeatTimer) clearInterval(state.heartbeatTimer);
+  state.heartbeatTimer = null;
+  document.removeEventListener("visibilitychange", onVisibilityChange);
+}
+function onVisibilityChange(){
+  if (document.visibilityState === "visible") callFunction("heartbeat").catch(()=>{});
+}
+
+/* ============================================================
+   画面: HOME / 作成 / 参加
+============================================================ */
+$("btnGoCreate").onclick = () => {
+  state.pendingCreateSettings = {
+    name: "",
+    showCandidates: true,
+    showSubmitter: false,
+    maxCandidatesPerPerson: null,
+    openMode: "own_pace",
+  };
+  $("inputRoomName").value = "";
+  showScreen("screen-create");
+};
+$("btnCreateBack").onclick = () => showScreen("screen-home");
+$("btnGoJoin").onclick = () => { $("inputShareCode").value=""; $("joinCodeError").textContent=""; showScreen("screen-joincode"); };
+$("btnJoinCodeBack").onclick = () => showScreen("screen-home");
+
+// 選択肢トグル共通
+document.querySelectorAll(".choice-group").forEach(group => {
+  group.addEventListener("click", (e) => {
+    const choice = e.target.closest(".choice");
+    if (!choice) return;
+    group.querySelectorAll(".choice").forEach(c => c.classList.remove("selected"));
+    choice.classList.add("selected");
+  });
+});
+
+$("btnCreateNext").onclick = () => {
+  const showCandidates = document.querySelector("#choiceShowCandidates .selected").dataset.value === "true";
+  const showSubmitter = document.querySelector("#choiceShowSubmitter .selected").dataset.value === "true";
+  const maxRaw = document.querySelector("#choiceMaxPerPerson .selected").dataset.value;
+  const maxCandidatesPerPerson = maxRaw === "null" ? null : Number(maxRaw);
+  const openMode = document.querySelector("#choiceOpenMode .selected").dataset.value;
+
+  state.pendingCreateSettings = {
+    name: $("inputRoomName").value,
+    showCandidates, showSubmitter, maxCandidatesPerPerson, openMode,
+  };
+  $("inputHostNickname").value = "";
+  $("hostNameError").textContent = "";
+  showScreen("screen-hostname");
+};
+$("btnHostNameBack").onclick = () => showScreen("screen-create");
+
+$("btnHostNameNext").onclick = async () => {
+  const nickname = $("inputHostNickname").value.trim();
+  if (!nickname){ $("hostNameError").textContent = "名前を入力してください"; return; }
+  $("btnHostNameNext").disabled = true;
+  try{
+    const s = state.pendingCreateSettings;
+    const res = await callFunction("create-room", {
+      name: s.name, showCandidates: s.showCandidates, showSubmitter: s.showSubmitter,
+      maxCandidatesPerPerson: s.maxCandidatesPerPerson, openMode: s.openMode, hostNickname: nickname,
+    });
+    saveSession(res.participantToken, res.room.roomId);
+    state.room = res.room;
+    state.yourParticipantId = res.yourParticipantId;
+    openShareScreen(res.room);
+  }catch(err){
+    $("hostNameError").textContent = err.message || "作成に失敗しました";
+    showToast(err.message || "作成に失敗しました");
+  }finally{
+    $("btnHostNameNext").disabled = false;
+  }
+};
+
+$("btnJoinCodeNext").onclick = async () => {
+  const code = $("inputShareCode").value.trim().toUpperCase();
+  if (!code){ $("joinCodeError").textContent = "共有コードを入力してください"; return; }
+  $("btnJoinCodeNext").disabled = true;
+  $("joinCodeError").textContent = "";
+  try{
+    const res = await callFunction("check-room", { shareCode: code });
+    state.pendingJoin = { shareCode: code, roomId: res.roomId };
+    $("joinRoomName").textContent = res.name;
+    $("inputJoinNickname").value = "";
+    $("joinNicknameError").textContent = "";
+    showScreen("screen-joinnickname");
+  }catch(err){
+    $("joinCodeError").textContent = err.message || "ガチャが見つかりませんでした";
+  }finally{
+    $("btnJoinCodeNext").disabled = false;
+  }
+};
+$("btnJoinNicknameBack").onclick = () => showScreen("screen-joincode");
+
+$("btnJoinNicknameNext").onclick = async () => {
+  const nickname = $("inputJoinNickname").value.trim();
+  if (!nickname){ $("joinNicknameError").textContent = "名前を入力してください"; return; }
+  $("btnJoinNicknameNext").disabled = true;
+  try{
+    const res = await callFunction("join-room", {
+      shareCode: state.pendingJoin?.shareCode,
+      roomId: state.pendingJoin?.roomId,
+      nickname,
+    });
+    saveSession(res.participantToken, res.room.roomId);
+    state.room = res.room;
+    state.yourParticipantId = res.yourParticipantId;
+    enterRoom();
+  }catch(err){
+    $("joinNicknameError").textContent = err.message || "参加に失敗しました";
+  }finally{
+    $("btnJoinNicknameNext").disabled = false;
+  }
+};
+
+/* ============================================================
+   共有画面
+============================================================ */
+function openShareScreen(room){
+  $("shareRoomName").textContent = room.name;
+  $("shareCodeText").textContent = room.shareCode;
+  const joinUrl = CONFIG.WEB_JOIN_BASE_URL + "r/" + room.shareCode;
+
+  $("qrCanvas").innerHTML = "";
+  if (window.QRCode){
+    new QRCode($("qrCanvas"), { text: joinUrl, width: 160, height: 160, colorDark:"#221630", colorLight:"#ffffff" });
+  }
+
+  $("btnCopyCode").onclick = () => { navigator.clipboard.writeText(room.shareCode); showToast("コードをコピーしました"); };
+  $("btnCopyUrl").onclick = () => { navigator.clipboard.writeText(joinUrl); showToast("URLをコピーしました"); };
+  $("btnShareNative").onclick = () => {
+    if (navigator.share){
+      navigator.share({ title: room.name, text: `「${room.name}」に参加しよう！共有コード: ${room.shareCode}`, url: joinUrl }).catch(()=>{});
+    } else {
+      navigator.clipboard.writeText(`「${room.name}」に参加しよう！\n共有コード: ${room.shareCode}\n${joinUrl}`);
+      showToast("招待文をコピーしました");
+    }
+  };
+
+  showScreen("screen-share");
+}
+$("btnShareEnter").onclick = () => enterRoom();
+
+/* ============================================================
+   候補受付ルーム
+============================================================ */
+function enterRoom(){
+  subscribeRoom(state.roomId);
+  startHeartbeat();
+  refreshResume();
+}
+
+function renderRoom(){
+  const room = state.room;
+  $("roomTitle").textContent = room.name;
+  $("participantCount").textContent = state.participants.length;
+
+  const isHost = state.participants.find(p => p.participantId === state.yourParticipantId)?.isHost;
+  $("hostControls").style.display = isHost ? "block" : "none";
+  $("btnStartDraw").disabled = room.candidateCount < 2;
+
+  // 参加者ストリップ
+  const strip = $("participantStrip");
+  strip.innerHTML = "";
+  state.participants.forEach(p => {
+    const av = document.createElement("div");
+    av.className = "avatar";
+    av.innerHTML = `
+      <div class="avatar-dot ${p.online ? "online":""} ${p.isHost ? "host":""}">${p.nickname.slice(0,1)}</div>
+      <div class="avatar-name">${escapeHtml(p.nickname)}</div>`;
+    strip.appendChild(av);
+  });
+
+  // ガチャ本体
+  renderCapsules("roomCapsules", room.candidateCount);
+  $("candidateCountText").textContent = room.candidateCount;
+
+  // 候補リスト
+  const list = $("candidateList");
+  list.innerHTML = "";
+  if (!room.showCandidates){
+    $("secretNote").style.display = "block";
+  } else {
+    $("secretNote").style.display = "none";
+  }
+  state.candidates.forEach(c => {
+    const row = document.createElement("div");
+    row.className = "candidate-row";
+    const canDelete = c.isMine || (isHost && room.showCandidates);
+    row.innerHTML = `
+      <div>
+        <div class="candidate-text">${escapeHtml(c.text)}</div>
+        ${c.submitterNickname ? `<div class="candidate-sub">${escapeHtml(c.submitterNickname)}さんの候補</div>` : ""}
+      </div>
+      ${canDelete ? `<button class="candidate-del" data-id="${c.candidateId}" data-text="${escapeHtml(c.text)}">✕</button>` : ""}
+    `;
+    list.appendChild(row);
+  });
+
+  document.querySelectorAll(".candidate-del").forEach(btn => {
+    btn.onclick = () => onDeleteCandidate(btn.dataset.id, btn.dataset.text, isHost);
+  });
+}
+
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+
+$("inputCandidate").addEventListener("keydown", (e) => { if (e.key === "Enter") $("btnAddCandidate").click(); });
+$("btnAddCandidate").onclick = async () => {
+  const text = $("inputCandidate").value.trim();
+  if (!text) return;
+  $("btnAddCandidate").disabled = true;
+  $("candidateError").textContent = "";
+  try{
+    await callFunction("add-candidate", { text });
+    $("inputCandidate").value = "";
+    vibrate(15);
+    await spawnFallingCapsule();
+    await refreshResume();
+  }catch(err){
+    $("candidateError").textContent = err.message || "うまく送れませんでした。もう一度試してみてね";
+  }finally{
+    $("btnAddCandidate").disabled = false;
+  }
+};
+
+function spawnFallingCapsule(){
+  return new Promise((resolve) => {
+    const machine = $("roomMachine");
+    const capsulesEl = $("roomCapsules");
+    if (!machine){ resolve(); return; }
+
+    // 実際にドームへ追加されるカプセルと同じ色になるよう、同じインデックスで色を決める
+    const seedIndex = capsulesEl ? capsulesEl.children.length : 0;
+
+    const capsule = document.createElement("img");
+    capsule.src = capsuleImage(seedIndex);
+    capsule.alt = "";
+    capsule.className = "falling-capsule";
+    machine.appendChild(capsule);
+
+    const machineRect = machine.getBoundingClientRect();
+    const sizePct = capsuleSizeForCount(seedIndex + 1); // 着地後と同じサイズ感で降らせる
+    const size = machineRect.width * (sizePct / 100);
+    capsule.style.width = size + "px";
+    const startX = machineRect.width * 0.5 - size / 2;
+    capsule.style.left = startX + "px";
+
+    // 積み重なるほど着地位置が上がっていく(カプセルが増えていく実感。仕様13)
+    const fillRatio = Math.min(seedIndex / 24, 1);
+    const landingY = machineRect.height * (0.54 - fillRatio * 0.28);
+
+    let y = -size * 1.4;
+    let vy = 0;
+    let rot = Math.random() * 40 - 20;
+    let vrot = 180 + Math.random() * 120;
+    const gravity = 4200; // px/s^2 相当の疑似重力
+    let bounces = 0;
+    const maxBounces = 2;
+    let lastT = null;
+
+    capsule.style.transform = `translateY(${y}px) rotate(${rot}deg)`;
+
+    function frame(t){
+      if (lastT === null) lastT = t;
+      const dt = Math.min((t - lastT) / 1000, 0.032);
+      lastT = t;
+
+      vy += gravity * dt;
+      y += vy * dt;
+      rot += vrot * dt;
+
+      let settled = false;
+      if (y >= landingY){
+        y = landingY;
+        if (bounces < maxBounces && Math.abs(vy) > 80){
+          vy *= -0.4;      // 跳ね返り(減衰)
+          vrot *= 0.5;
+          bounces++;
+        } else {
+          vy = 0;
+          settled = true;
+        }
+      }
+
+      capsule.style.transform = `translateY(${y}px) rotate(${rot}deg)`;
+
+      if (!settled){
+        requestAnimationFrame(frame);
+      } else {
+        setTimeout(() => {
+          capsule.remove();
+          resolve();
+        }, 90);
+      }
+    }
+    requestAnimationFrame(frame);
+
+    // 保険: 何らかの理由でrAFループが終わらない場合のフォールバック
+    setTimeout(() => { if (capsule.isConnected){ capsule.remove(); resolve(); } }, 1600);
+  });
+}
+
+function onDeleteCandidate(id, text, isHost){
+  const mine = state.candidates.find(c => c.candidateId === id)?.isMine;
+  if (mine){
+    doDeleteCandidate(id);
+    return;
+  }
+  openModal({
+    title: `「${text}」を削除しますか？`,
+    body: "",
+    actions: [
+      { label: "削除する", danger: true, onClick: () => doDeleteCandidate(id) },
+      { label: "キャンセル", ghost: true },
+    ],
+  });
+}
+async function doDeleteCandidate(id){
+  try{
+    await callFunction("delete-candidate", { candidateId: id });
+    await refreshResume();
+  }catch(err){
+    showToast(err.message || "うまく送れませんでした");
+  }
+}
+
+$("btnStartDraw").onclick = async () => {
+  $("btnStartDraw").disabled = true;
+  try{
+    await callFunction("start-draw", {});
+  }catch(err){
+    showToast(err.message || "抽選に失敗しました");
+    $("btnStartDraw").disabled = false;
+  }
+};
+
+$("btnLeaveRoom").onclick = () => {
+  openModal({
+    title: "ルームから退出しますか？",
+    body: "投稿した候補は残ります。",
+    actions: [
+      { label: "退出する", danger: true, onClick: async () => {
+        await callFunction("leave-room", {}).catch(()=>{});
+        exitToHome();
+      }},
+      { label: "キャンセル", ghost: true },
+    ],
+  });
+};
+
+$("btnFinishedGoHome").onclick = () => {
+  exitToHome();
+};
+
+/* ============================================================
+   参加者一覧(モーダル / ホストのキック操作含む)
+============================================================ */
+$("btnOpenMembers").onclick = () => {
+  const isHost = state.participants.find(p => p.participantId === state.yourParticipantId)?.isHost;
+  const rows = state.participants.map(p => `
+    <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 0; border-bottom:1px solid var(--line);">
+      <div>${p.isHost ? "👑 " : (p.online ? "● " : "○ ")}${escapeHtml(p.nickname)}</div>
+      ${(isHost && p.participantId !== state.yourParticipantId) ? `<button class="btn btn-sm btn-danger" data-kick="${p.participantId}" data-name="${escapeHtml(p.nickname)}">ルームから外す</button>` : ""}
+    </div>`).join("");
+  openModal({
+    title: "参加者一覧",
+    bodyHtml: `<div>${rows}</div>`,
+    actions: [{ label: "閉じる", ghost: true }],
+    afterRender: () => {
+      document.querySelectorAll("[data-kick]").forEach(btn => {
+        btn.onclick = () => {
+          closeModal();
+          confirmKick(btn.dataset.kick, btn.dataset.name);
+        };
+      });
+    },
+  });
+};
+
+function confirmKick(participantId, name){
+  let deleteCandidates = false;
+  openModal({
+    title: `${name}さんをルームから外しますか？`,
+    bodyHtml: `
+      <label class="modal-check">
+        <input type="checkbox" id="kickDeleteCandidates">
+        この人が入れた候補もすべて削除する
+      </label>`,
+    actions: [
+      { label: "外す", danger: true, onClick: async () => {
+        const checked = $("kickDeleteCandidates")?.checked;
+        try{
+          await callFunction("kick-participant", { targetParticipantId: participantId, deleteCandidates: !!checked });
+          await refreshResume();
+        }catch(err){ showToast(err.message || "操作に失敗しました"); }
+      }},
+      { label: "キャンセル", ghost: true },
+    ],
+  });
+}
+
+/* ============================================================
+   モーダル共通
+============================================================ */
+function openModal({ title, body, bodyHtml, actions, afterRender }){
+  const el = $("modalBody");
+  el.innerHTML = `
+    <h3>${title}</h3>
+    ${bodyHtml ? bodyHtml : (body ? `<p>${body}</p>` : "")}
+    <div style="display:flex; flex-direction:column; gap:10px; margin-top:10px;" id="modalActions"></div>
+  `;
+  const actionsEl = $("modalActions");
+  actions.forEach(a => {
+    const btn = document.createElement("button");
+    btn.className = "btn " + (a.danger ? "btn-danger" : a.ghost ? "btn-ghost" : "btn-primary");
+    btn.textContent = a.label;
+    btn.onclick = () => { closeModal(); a.onClick && a.onClick(); };
+    actionsEl.appendChild(btn);
+  });
+  $("modalBackdrop").classList.add("show");
+  if (afterRender) afterRender();
+}
+function closeModal(){ $("modalBackdrop").classList.remove("show"); }
+$("modalBackdrop").onclick = (e) => { if (e.target === $("modalBackdrop")) closeModal(); };
+
+/* ============================================================
+   抽選演出
+============================================================ */
+let agitateInterval = null;
+/**
+ * カプセルを1個ずつ別々にランダムな位置・角度へなめらかに動かし続ける「もみくちゃ」演出。
+ * CSS側の .capsule-img{ transition: transform .38s } が補間してくれるので、
+ * ここでは一定間隔で目標値を変えるだけでよい。
+ */
+function startAgitateJumble(containerId){
+  stopAgitateJumble(containerId);
+  const el = $(containerId);
+  if (!el) return;
+  const jostle = () => {
+    Array.from(el.children).forEach((c) => {
+      const tx = (Math.random() * 14 - 7).toFixed(1);
+      const ty = (Math.random() * 12 - 6).toFixed(1);
+      const rot = (Math.random() * 50 - 25).toFixed(1);
+      c.style.transform = `translate(${tx}px, ${ty}px) rotate(${rot}deg)`;
+    });
+  };
+  jostle();
+  agitateInterval = setInterval(jostle, 380);
+}
+function stopAgitateJumble(containerId){
+  if (agitateInterval){ clearInterval(agitateInterval); agitateInterval = null; }
+  const el = $(containerId);
+  if (el){
+    Array.from(el.children).forEach((c) => { c.style.transform = ""; });
+  }
+}
+
+let currentDrawCapsuleSrc = CAPSULE_IMAGES[0];
+
+function playDrawAnimation(payload){
+  showScreen("screen-draw");
+  const total = payload.animationDurationMs; // 通常6000ms。サーバー側のタイミング計算と一致させる必要がある
+  const machine = $("drawMachine");
+  const caption = $("drawCaption");
+  const crank = $("crankReal");
+
+  // このガチャ演出で使う「排出カプセル」の色を1つ決めて、演出中〜開封画面まで統一する
+  // (実際の当選候補は秘密。これはあくまで見た目の色)
+  // 実際にドーム内に表示されている色の中からランダムに選ぶ(存在しない色が出てこないように)
+  const visibleCount = Math.max(state.room?.candidateCount || 1, 1);
+  const colorSeed = Math.floor(Math.random() * visibleCount);
+  currentDrawCapsuleSrc = capsuleImage(colorSeed);
+  $("capsuleBigOwnImg").src = currentDrawCapsuleSrc;
+  $("capsuleBigTogetherImg").src = currentDrawCapsuleSrc;
+
+  // 内訳: 導入1000ms / 攪拌2500ms / ハンドル1000ms / 排出1500ms (合計6000ms、仕様33準拠)
+  const T_INTRO = 1000;
+  const T_AGITATE = 2500;
+  const T_HANDLE = 1000;
+  // 残りは排出フェーズ(total - 上記合計)
+
+  machine.className = "machine phase-intro";
+  caption.textContent = "ガチャ、スタート！";
+  renderCapsules("drawCapsules", state.room?.candidateCount || 12);
+  vibrate(20);
+
+  setTimeout(() => {
+    machine.className = "machine phase-agitate";
+    caption.textContent = "カプセルをシャカシャカ…";
+    vibrate([15,20,15,20,15]);
+    startAgitateJumble("drawCapsules");
+  }, T_INTRO);
+
+  setTimeout(() => {
+    stopAgitateJumble("drawCapsules");
+    machine.className = "machine"; // 攪拌を止めてハンドルに注目させる
+    caption.textContent = "ハンドルを回して…";
+    crank.classList.add("spinning");
+    vibrate([10,10,10,10,10,10]);
+  }, T_INTRO + T_AGITATE);
+
+  setTimeout(() => {
+    crank.classList.remove("spinning");
+    caption.textContent = "カプセルが出てきた！";
+    vibrate([10,30,10]);
+    spawnEjectedCapsule();
+  }, T_INTRO + T_AGITATE + T_HANDLE);
+
+  setTimeout(async () => {
+    removeEjectedCapsule();
+    if (payload.openMode === "own_pace"){
+      showScreen("screen-open-own");
+      $("capsuleBigOwn").onclick = onOpenOwnPace;
+    } else {
+      showScreen("screen-open-together");
+      $("readyCount").textContent = 0;
+      const targetCount = state.participants.filter(p => p.online).length;
+      $("readyTarget").textContent = targetCount;
+    }
+  }, total);
+}
+
+let ejectedCapsuleEl = null;
+function spawnEjectedCapsule(){
+  const machine = $("drawMachine");
+  if (!machine) return;
+  const rect = machine.getBoundingClientRect();
+  const startX = rect.left + rect.width * 0.5;
+  const startY = rect.top + rect.height * 0.86;
+  const endX = window.innerWidth / 2;
+  const endY = window.innerHeight / 2;
+  const size = 50;
+
+  const capsule = document.createElement("img");
+  capsule.src = currentDrawCapsuleSrc;
+  capsule.alt = "";
+  capsule.className = "ejected-capsule";
+  capsule.style.width = size + "px";
+  document.body.appendChild(capsule);
+  ejectedCapsuleEl = capsule;
+
+  capsule.animate([
+    { transform: `translate(${startX - size/2}px, ${startY - size/2}px) scale(0.4) rotate(0deg)`, opacity: 0 },
+    { transform: `translate(${startX - size/2}px, ${startY - size/2}px) scale(0.7) rotate(40deg)`, opacity: 1, offset: 0.2 },
+    { transform: `translate(${endX - size/2}px, ${endY - size/2}px) scale(2.4) rotate(400deg)`, opacity: 1 },
+  ], { duration: 1400, easing: "cubic-bezier(.34,1.56,.64,1)", fill: "forwards" });
+}
+function removeEjectedCapsule(){
+  if (ejectedCapsuleEl){ ejectedCapsuleEl.remove(); ejectedCapsuleEl = null; }
+}
+
+async function onOpenOwnPace(){
+  $("capsuleBigOwn").onclick = null;
+  try{
+    const res = await callFunction("open-capsule", {});
+    vibrate([15,40,15]);
+    showResult(res.candidateText, res.submitterNickname);
+  }catch(err){
+    showToast(err.message || "開封に失敗しました");
+  }
+}
+
+$("btnMarkReady").onclick = async () => {
+  $("btnMarkReady").disabled = true;
+  try{
+    const res = await callFunction("mark-ready", {});
+    if (res.opened){
+      showResult(res.candidateText, res.submitterNickname);
+    } else {
+      $("readyCount").textContent = res.readyCount;
+      $("readyTarget").textContent = res.targetCount;
+    }
+  }catch(err){
+    showToast(err.message || "うまく送れませんでした");
+    $("btnMarkReady").disabled = false;
+  }
+};
+
+function showResult(text, submitterNickname){
+  $("resultText").textContent = text;
+  $("resultSub").textContent = submitterNickname ? `${submitterNickname}さんの候補` : "";
+  spawnConfetti();
+  vibrate([10,20,10,20,10]);
+
+  const isHost = state.participants.find(p => p.participantId === state.yourParticipantId)?.isHost;
+  $("resultHostControls").style.display = isHost ? "block" : "none";
+  $("resultParticipantNote").style.display = isHost ? "none" : "block";
+
+  showScreen("screen-result");
+}
+
+const CONFETTI_IMAGES = [
+  "assets/confetti_star.png",
+  "assets/confetti_ribbon.png",
+  "assets/confetti_popper.png",
+  "assets/confetti_burst.png",
+  "assets/confetti_flag.png",
+];
+function spawnConfetti(){
+  const box = $("confetti");
+  box.innerHTML = "";
+  for (let i=0;i<28;i++){
+    const s = document.createElement("img");
+    s.src = CONFETTI_IMAGES[i % CONFETTI_IMAGES.length];
+    s.alt = "";
+    s.style.left = Math.random()*100 + "%";
+    s.style.width = (24 + Math.random()*16) + "px";
+    s.style.animationDuration = (2 + Math.random()*1.5) + "s";
+    s.style.animationDelay = (Math.random()*0.4) + "s";
+    box.appendChild(s);
+  }
+  setTimeout(() => { box.innerHTML = ""; }, 4000);
+}
+
+$("btnRestartDraw").onclick = async () => {
+  try{ await callFunction("restart-draw", {}); }
+  catch(err){ showToast(err.message || "うまく送れませんでした"); }
+};
+$("btnFinishRoom").onclick = () => {
+  openModal({
+    title: "ガチャを終了しますか？",
+    body: "終了すると、このルームには戻れなくなります。",
+    actions: [
+      { label: "終了する", danger: true, onClick: async () => {
+        try{ await callFunction("finish-room", {}); }
+        catch(err){ showToast(err.message || "うまく送れませんでした"); }
+      }},
+      { label: "キャンセル", ghost: true },
+    ],
+  });
+};
+
+/* ============================================================
+   状態の再取得(resume-session) — Realtimeイベント受信時の再同期に使う
+============================================================ */
+let resumeInFlight = null;
+async function refreshResume(){
+  if (resumeInFlight) return resumeInFlight;
+  resumeInFlight = (async () => {
+    try{
+      const res = await callFunction("resume-session", {});
+      applyResume(res);
+    }catch(err){
+      if (err.code === "unauthorized" || err.code === "room_not_found"){
+        exitToHome();
+      }
+    }finally{
+      resumeInFlight = null;
+    }
+  })();
+  return resumeInFlight;
+}
+
+function applyResume(res){
+  if (res.membershipStatus === "kicked"){
+    showToast("ホストによってルームから外されました");
+    exitToHome();
+    return;
+  }
+  if (res.membershipStatus === "room_finished"){
+    showScreen("screen-finished");
+    clearSession();
+    stopHeartbeat();
+    return;
+  }
+
+  state.room = res.room;
+  state.participants = res.participants || [];
+  state.candidates = res.candidates || [];
+  state.yourParticipantId = res.yourParticipantId;
+
+  // 現在の進行状況に応じて、演出をやり直さず該当画面へ直接復帰する(仕様48)
+  if (res.room.status === "accepting"){
+    renderRoom();
+    if (!document.querySelector(".screen.active")?.id?.match(/screen-room/)){
+      showScreen("screen-room");
+    }
+    return;
+  }
+
+  if (res.room.status === "drawing" || res.room.status === "awaiting_open"){
+    if (res.currentDraw?.revealed){
+      showResult(res.currentDraw.revealed.candidateText, res.currentDraw.revealed.submitterNickname);
+    } else if (res.currentDraw?.openMode === "own_pace"){
+      showScreen("screen-open-own");
+      $("capsuleBigOwn").onclick = onOpenOwnPace;
+    } else {
+      showScreen("screen-open-together");
+    }
+    return;
+  }
+
+  if (res.room.status === "showing_result"){
+    if (res.currentDraw?.revealed){
+      showResult(res.currentDraw.revealed.candidateText, res.currentDraw.revealed.submitterNickname);
+    } else {
+      // all_togetherで自分は開封前に離脱していた等のケース: 受付再開を待つ
+      renderRoom();
+      showScreen("screen-room");
+    }
+    return;
+  }
+}
+
+function exitToHome(){
+  clearSession();
+  stopHeartbeat();
+  stopAgitateJumble("drawCapsules");
+  removeEjectedCapsule();
+  if (state.channel){ supabaseClient?.removeChannel(state.channel); state.channel = null; }
+  showScreen("screen-home");
+}
+
+/* ============================================================
+   起動時: 既存セッションがあれば自動復帰(仕様: HOMEに戻らず対象ルームへ)
+============================================================ */
+(async function init(){
+  // URLに共有コードが含まれる場合(QR/URL経由の参加)
+  const pathMatch = location.pathname.match(/\/r\/([A-Z0-9]+)/i);
+  const urlShareCode = pathMatch ? pathMatch[1].toUpperCase() : null;
+
+  if (state.token && state.roomId){
+    subscribeRoom(state.roomId);
+    startHeartbeat();
+    await refreshResume();
+    return;
+  }
+
+  if (urlShareCode){
+    try{
+      const res = await callFunction("check-room", { shareCode: urlShareCode });
+      state.pendingJoin = { shareCode: urlShareCode, roomId: res.roomId };
+      $("joinRoomName").textContent = res.name;
+      showScreen("screen-joinnickname");
+    }catch(err){
+      showToast(err.message || "ガチャが見つかりませんでした");
+    }
+  }
+
+  // PWA対応: Service Workerを登録(アプリの外側をキャッシュし、起動を速くする)
+  // file://で直接開いている間は登録されない(http/https経由でのみ有効)。それでOK。
+  // Service Workerの登録はWeb版(ブラウザ)でのみ行う。
+  // Capacitorアプリ内のWebViewではService Workerの扱いが不安定なため無効化する。
+  const isNativeApp = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+  if (!isNativeApp && "serviceWorker" in navigator && location.protocol.startsWith("http")){
+    navigator.serviceWorker.register("./sw.js").catch((e) => {
+      console.warn("[gacha] Service Workerの登録に失敗しました", e);
+    });
+  }
+})();
+</script>
+
+<!-- QRコード生成(共有画面用) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+</body>
+</html>

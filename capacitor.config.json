@@ -1,0 +1,9 @@
+{
+  "appId": "com.yutaXXX.gachamaker",
+  "appName": "みんなでガチャメーカー",
+  "webDir": "web",
+  "server": {
+    "androidScheme": "https",
+    "iosScheme": "https"
+  }
+}
