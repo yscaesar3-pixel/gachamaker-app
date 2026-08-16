@@ -97,6 +97,11 @@
     padding: calc(20px + var(--safe-top)) 20px calc(24px + var(--safe-bottom));
     display: flex;
     flex-direction: column;
+    transition: padding-bottom .2s ease;
+  }
+  /* AdMobバナー表示中、下部の主要ボタンと重ならないよう余白を足す */
+  body.has-ad-banner .app{
+    padding-bottom: calc(24px + var(--safe-bottom) + var(--ad-banner-height, 50px));
   }
   .screen{ display:none; flex:1; flex-direction:column; animation: fadeIn .25s ease; }
   .screen.active{ display:flex; }
@@ -668,6 +673,18 @@ const CONFIG = {
   WEB_JOIN_BASE_URL: "https://example.com/", // 参加URLの生成に使う(共有コードをこの後ろに付ける想定)
 };
 
+// Capacitorアプリ内で動いているかどうか(Web版ブラウザではfalse)。
+// AdMob・Service Worker registrationなど、ネイティブ専用/Web専用の処理はこれで分岐する。
+const isNativeApp = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+
+const ADMOB_CONFIG = {
+  BANNER_AD_UNIT_ID: "ca-app-pub-8174756915786797/9166736089",
+  // 実機でテストする時、Xcodeのコンソールに出るデバイスIDをここに追加すると、
+  // そのデバイスだけ本番の広告ユニットIDのままテスト広告が表示されるようになる。
+  // (自分のタップで本番広告に実際の収益が発生する事故を防ぐための必須設定)
+  TEST_DEVICE_IDS: [],
+};
+
 const FUNCTIONS_BASE = CONFIG.SUPABASE_URL + "/functions/v1";
 
 /* ============================================================
@@ -696,6 +713,83 @@ function $(id){ return document.getElementById(id); }
 function showScreen(id){
   document.querySelectorAll(".screen").forEach(el => el.classList.remove("active"));
   $(id).classList.add("active");
+  updateAdBannerForScreen(id);
+}
+
+/* ============================================================
+   AdMobバナー広告(仕様70準拠)
+   - Web版には広告を出さない(isNativeAppでガード)
+   - 表示する画面: HOME/ガチャ作成/共有コード入力/ニックネーム入力/共有/候補受付ルーム
+   - 表示しない画面: 抽選演出/カプセル開封/結果/終了/モーダル類
+   - 広告の取得失敗がアプリ機能へ影響しないよう、必ずtry/catchで囲む
+============================================================ */
+const AD_BANNER_SCREENS = new Set([
+  "screen-home",
+  "screen-create",
+  "screen-hostname",
+  "screen-joincode",
+  "screen-joinnickname",
+  "screen-share",
+  "screen-room",
+]);
+
+let adMobReady = false;
+let adBannerVisible = false;
+
+async function initAdMob(){
+  if (!isNativeApp || !window.Capacitor?.Plugins?.AdMob) return;
+  try{
+    const { AdMob } = window.Capacitor.Plugins;
+
+    // バナーの実際の高さが分かり次第、下部ボタンと重ならないよう本文にパディングを足す
+    AdMob.addListener("bannerAdSizeChanged", (info) => {
+      if (info && info.height){
+        document.documentElement.style.setProperty("--ad-banner-height", info.height + "px");
+      }
+    });
+
+    await AdMob.initialize({
+      requestTrackingAuthorization: true,
+      testingDevices: ADMOB_CONFIG.TEST_DEVICE_IDS,
+      initializeForTesting: false,
+    });
+    adMobReady = true;
+
+    // 起動直後の画面がバナー対象なら表示する
+    const activeScreen = document.querySelector(".screen.active");
+    if (activeScreen) updateAdBannerForScreen(activeScreen.id);
+  }catch(e){
+    // 広告の初期化に失敗しても、アプリ本体の機能には一切影響させない
+    console.warn("[gacha] AdMobの初期化に失敗しました(広告なしで続行します)", e);
+  }
+}
+
+async function updateAdBannerForScreen(screenId){
+  if (!isNativeApp || !window.Capacitor?.Plugins?.AdMob || !adMobReady) return;
+  const shouldShow = AD_BANNER_SCREENS.has(screenId);
+  if (shouldShow === adBannerVisible) return;
+
+  const { AdMob, BannerAdPosition } = window.Capacitor.Plugins;
+  try{
+    if (shouldShow){
+      await AdMob.showBanner({
+        adId: ADMOB_CONFIG.BANNER_AD_UNIT_ID,
+        adSize: "ADAPTIVE_BANNER",
+        position: BannerAdPosition?.BOTTOM_CENTER ?? "BOTTOM_CENTER",
+        margin: 0,
+        isTesting: false,
+      });
+      document.body.classList.add("has-ad-banner");
+      adBannerVisible = true;
+    } else {
+      await AdMob.hideBanner();
+      document.body.classList.remove("has-ad-banner");
+      document.documentElement.style.removeProperty("--ad-banner-height");
+      adBannerVisible = false;
+    }
+  }catch(e){
+    console.warn("[gacha] 広告バナーの表示切り替えに失敗しました", e);
+  }
 }
 
 function showToast(msg){
@@ -1295,9 +1389,14 @@ function openModal({ title, body, bodyHtml, actions, afterRender }){
     actionsEl.appendChild(btn);
   });
   $("modalBackdrop").classList.add("show");
+  updateAdBannerForScreen("__modal_open__"); // 通常の画面IDと一致しないので、必ずバナーが隠れる
   if (afterRender) afterRender();
 }
-function closeModal(){ $("modalBackdrop").classList.remove("show"); }
+function closeModal(){
+  $("modalBackdrop").classList.remove("show");
+  const activeScreen = document.querySelector(".screen.active");
+  if (activeScreen) updateAdBannerForScreen(activeScreen.id);
+}
 $("modalBackdrop").onclick = (e) => { if (e.target === $("modalBackdrop")) closeModal(); };
 
 /* ============================================================
@@ -1592,6 +1691,12 @@ function exitToHome(){
    起動時: 既存セッションがあれば自動復帰(仕様: HOMEに戻らず対象ルームへ)
 ============================================================ */
 (async function init(){
+  // AdMob初期化はUIが落ち着いてから(ATTダイアログが起動直後に出て
+  // 不自然に見えるのを防ぐため、意図的に少し遅らせる)
+  if (isNativeApp){
+    setTimeout(() => { initAdMob(); }, 1200);
+  }
+
   // URLに共有コードが含まれる場合(QR/URL経由の参加)
   const pathMatch = location.pathname.match(/\/r\/([A-Z0-9]+)/i);
   const urlShareCode = pathMatch ? pathMatch[1].toUpperCase() : null;
@@ -1618,7 +1723,6 @@ function exitToHome(){
   // file://で直接開いている間は登録されない(http/https経由でのみ有効)。それでOK。
   // Service Workerの登録はWeb版(ブラウザ)でのみ行う。
   // Capacitorアプリ内のWebViewではService Workerの扱いが不安定なため無効化する。
-  const isNativeApp = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
   if (!isNativeApp && "serviceWorker" in navigator && location.protocol.startsWith("http")){
     navigator.serviceWorker.register("./sw.js").catch((e) => {
       console.warn("[gacha] Service Workerの登録に失敗しました", e);
