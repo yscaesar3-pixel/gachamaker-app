@@ -737,7 +737,10 @@ let adMobReady = false;
 let adBannerVisible = false;
 
 async function initAdMob(){
-  if (!isNativeApp || !window.Capacitor?.Plugins?.AdMob) return;
+  if (!isNativeApp || !window.Capacitor?.Plugins?.AdMob) {
+    if (isNativeApp) showToast("[AdMob] プラグインが見つかりません");
+    return;
+  }
   try{
     const { AdMob } = window.Capacitor.Plugins;
 
@@ -746,6 +749,13 @@ async function initAdMob(){
       if (info && info.height){
         document.documentElement.style.setProperty("--ad-banner-height", info.height + "px");
       }
+    });
+    // デバッグ用: 広告の読み込み結果をトーストで直接表示する(Xcodeコンソールが見られない環境向け)
+    AdMob.addListener("bannerAdLoaded", () => {
+      showToast("[AdMob] バナー読み込み成功");
+    });
+    AdMob.addListener("bannerAdFailedToLoad", (err) => {
+      showToast("[AdMob] 読み込み失敗: " + (err?.message || JSON.stringify(err)));
     });
 
     await AdMob.initialize({
@@ -773,6 +783,7 @@ async function initAdMob(){
   }catch(e){
     // 広告の初期化に失敗しても、アプリ本体の機能には一切影響させない
     console.warn("[gacha] AdMobの初期化に失敗しました(広告なしで続行します)", e);
+    showToast("[AdMob] 初期化失敗: " + (e?.message || JSON.stringify(e)));
   }
 }
 
@@ -781,13 +792,13 @@ async function updateAdBannerForScreen(screenId){
   const shouldShow = AD_BANNER_SCREENS.has(screenId);
   if (shouldShow === adBannerVisible) return;
 
-  const { AdMob, BannerAdPosition } = window.Capacitor.Plugins;
+  const { AdMob } = window.Capacitor.Plugins;
   try{
     if (shouldShow){
       await AdMob.showBanner({
         adId: ADMOB_CONFIG.BANNER_AD_UNIT_ID,
         adSize: "ADAPTIVE_BANNER",
-        position: BannerAdPosition?.BOTTOM_CENTER ?? "BOTTOM_CENTER",
+        position: "BOTTOM_CENTER",
         margin: 0,
         isTesting: false,
       });
@@ -801,6 +812,7 @@ async function updateAdBannerForScreen(screenId){
     }
   }catch(e){
     console.warn("[gacha] 広告バナーの表示切り替えに失敗しました", e);
+    showToast("[AdMob] 表示切替エラー: " + (e?.message || JSON.stringify(e)));
   }
 }
 
