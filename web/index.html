@@ -749,10 +749,22 @@ async function initAdMob(){
     });
 
     await AdMob.initialize({
-      requestTrackingAuthorization: true,
       testingDevices: ADMOB_CONFIG.TEST_DEVICE_IDS,
       initializeForTesting: false,
     });
+
+    // ATT(iOS14+)許可ダイアログは、initialize()のオプションでは出せない。
+    // trackingAuthorizationStatus()で未確認(notDetermined)の場合のみ、
+    // requestTrackingAuthorization()を明示的に呼んで初めてダイアログが表示される。
+    try{
+      const trackingInfo = await AdMob.trackingAuthorizationStatus();
+      if (trackingInfo.status === "notDetermined"){
+        await AdMob.requestTrackingAuthorization();
+      }
+    }catch(e){
+      console.warn("[gacha] ATT許可リクエストに失敗しました", e);
+    }
+
     adMobReady = true;
 
     // 起動直後の画面がバナー対象なら表示する
