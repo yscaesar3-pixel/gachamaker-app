@@ -12,7 +12,7 @@
  * 古いキャッシュは自動的に破棄されて新しいファイルに置き換わります。
  * 見た目やロジックを更新したら、このバージョン文字列を変更してください。
  */
-const CACHE_NAME = "gachamaker-shell-v2";
+const CACHE_NAME = "gachamaker-shell-v3";
 
 const APP_SHELL = [
   "./",
