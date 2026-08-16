@@ -668,14 +668,14 @@
 const CONFIG = {
   SUPABASE_URL: "https://arpkjnbnyyytdcbzeitk.supabase.co",
   SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFycGtqbmJueXl5dGRjYnplaXRrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM4MDk1NTgsImV4cCI6MjA5OTM4NTU1OH0.wMED0yZ1j6ygAIIPr5zw9As25xx9QqL0YbSICaK6UVo",
-  // Web版はホスト機能なし。iOSアプリ側でこのフラグをtrueにする想定。
-  IS_HOST_CAPABLE_PLATFORM: true,
   WEB_JOIN_BASE_URL: "https://example.com/", // 参加URLの生成に使う(共有コードをこの後ろに付ける想定)
 };
 
 // Capacitorアプリ内で動いているかどうか(Web版ブラウザではfalse)。
-// AdMob・Service Worker registrationなど、ネイティブ専用/Web専用の処理はこれで分岐する。
+// AdMob・Service Worker registration・ホスト機能の出し分けなど、
+// ネイティブ専用/Web専用の処理はすべてこれで判定する(仕様2: Web版はガチャ作成・ホスト機能・広告を持たない)。
 const isNativeApp = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+const IS_HOST_CAPABLE_PLATFORM = isNativeApp;
 
 const ADMOB_CONFIG = {
   BANNER_AD_UNIT_ID: "ca-app-pub-8174756915786797/9166736089",
@@ -1148,7 +1148,9 @@ function renderRoom(){
   $("roomTitle").textContent = room.name;
   $("participantCount").textContent = state.participants.length;
 
-  const isHost = state.participants.find(p => p.participantId === state.yourParticipantId)?.isHost;
+  // Web版はホスト機能を持たない(仕様2)。サーバー上でホストであっても、
+  // Web版のUIではホスト操作を一切表示しない。
+  const isHost = IS_HOST_CAPABLE_PLATFORM && state.participants.find(p => p.participantId === state.yourParticipantId)?.isHost;
   $("hostControls").style.display = isHost ? "block" : "none";
   $("btnStartDraw").disabled = room.candidateCount < 2;
 
@@ -1351,7 +1353,7 @@ $("btnFinishedGoHome").onclick = () => {
    参加者一覧(モーダル / ホストのキック操作含む)
 ============================================================ */
 $("btnOpenMembers").onclick = () => {
-  const isHost = state.participants.find(p => p.participantId === state.yourParticipantId)?.isHost;
+  const isHost = IS_HOST_CAPABLE_PLATFORM && state.participants.find(p => p.participantId === state.yourParticipantId)?.isHost;
   const rows = state.participants.map(p => `
     <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 0; border-bottom:1px solid var(--line);">
       <div>${p.isHost ? "👑 " : (p.online ? "● " : "○ ")}${escapeHtml(p.nickname)}</div>
@@ -1582,7 +1584,7 @@ function showResult(text, submitterNickname){
   spawnConfetti();
   vibrate([10,20,10,20,10]);
 
-  const isHost = state.participants.find(p => p.participantId === state.yourParticipantId)?.isHost;
+  const isHost = IS_HOST_CAPABLE_PLATFORM && state.participants.find(p => p.participantId === state.yourParticipantId)?.isHost;
   $("resultHostControls").style.display = isHost ? "block" : "none";
   $("resultParticipantNote").style.display = isHost ? "none" : "block";
 
@@ -1715,6 +1717,14 @@ function exitToHome(){
    起動時: 既存セッションがあれば自動復帰(仕様: HOMEに戻らず対象ルームへ)
 ============================================================ */
 (async function init(){
+  // Web版はガチャ作成・ホスト機能を持たない(仕様2)。「ガチャを作る」ボタンを隠し、
+  // 参加ボタンをメインの見た目に格上げする。
+  if (!IS_HOST_CAPABLE_PLATFORM){
+    $("btnGoCreate").style.display = "none";
+    $("btnGoJoin").classList.remove("btn-secondary");
+    $("btnGoJoin").classList.add("btn-primary");
+  }
+
   // AdMob初期化はUIが落ち着いてから(ATTダイアログが起動直後に出て
   // 不自然に見えるのを防ぐため、意図的に少し遅らせる)
   if (isNativeApp){
