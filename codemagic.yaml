@@ -55,16 +55,8 @@ workflows:
 
       - name: Increment build number
         script: |
-          cd $CM_BUILD_DIR/ios/App
-          LATEST_TESTFLIGHT_BUILD_NUMBER=$(app-store-connect get-latest-testflight-build-number "$APP_STORE_APPLE_ID" || echo 0)
-          LATEST_APP_STORE_BUILD_NUMBER=$(app-store-connect get-latest-app-store-build-number "$APP_STORE_APPLE_ID" || echo 0)
-          # TestFlightとApp Store両方の最新番号を比べて、大きい方より1つ上にする
-          if [ "$LATEST_TESTFLIGHT_BUILD_NUMBER" -ge "$LATEST_APP_STORE_BUILD_NUMBER" ]; then
-            LATEST_BUILD_NUMBER=$LATEST_TESTFLIGHT_BUILD_NUMBER
-          else
-            LATEST_BUILD_NUMBER=$LATEST_APP_STORE_BUILD_NUMBER
-          fi
-          agvtool new-version -all $(($LATEST_BUILD_NUMBER + 1))
+          cd $CM_BUILD_DIR
+          sed -i '' "s/CURRENT_PROJECT_VERSION = .*/CURRENT_PROJECT_VERSION = $PROJECT_BUILD_NUMBER;/" ios/App/App.xcodeproj/project.pbxproj
 
       - name: Build ipa for distribution
         script: |
