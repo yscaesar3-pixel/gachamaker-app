@@ -1,0 +1,74 @@
+workflows:
+  ios-workflow:
+    name: iOS Workflow
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+
+    # ここは「App Store Connect API Key」をCodemagicに登録した時に付けた名前に
+    # 書き換えてください(Team settings > Team integrations > Developer Portal)。
+    # 既存のoddiro_asc_keyが同じApple Developerチームで使えるならその名前でOKです。
+    integrations:
+      app_store_connect: codemagic
+
+    environment:
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.yutaXXX.gachamaker
+      vars:
+        # App Store Connectでアプリのレコードを作った後、
+        # 「App情報 > Apple ID」に表示される数字に書き換えてください。
+        APP_STORE_APPLE_ID: 0000000000
+        XCODE_PROJECT: "ios/App/App.xcodeproj"
+        XCODE_SCHEME: "App"
+      node: latest
+
+    scripts:
+      - name: npm install
+        script: |
+          npm install
+
+      # このプロジェクトはビルドツール(webpackなど)を使わず、
+      # web/ フォルダの中身をそのままCapacitorが読み込む構成のため、
+      # 「npm run build」のようなWeb側のビルド工程は不要。
+      # npx cap syncが web/ の中身をios/App/App/publicへコピーしてくれる。
+      - name: Sync web assets into the iOS project
+        script: |
+          npx cap sync ios
+
+      - name: Set up code signing settings on Xcode project
+        script: |
+          xcode-project use-profiles
+
+      - name: Increment build number
+        script: |
+          cd $CM_BUILD_DIR/ios/App
+          LATEST_BUILD_NUMBER=$(app-store-connect get-latest-app-store-build-number "$APP_STORE_APPLE_ID" || echo 0)
+          agvtool new-version -all $(($LATEST_BUILD_NUMBER + 1))
+
+      - name: Build ipa for distribution
+        script: |
+          cd $CM_BUILD_DIR
+          xcode-project build-ipa \
+            --project "$XCODE_PROJECT" \
+            --scheme "$XCODE_SCHEME"
+
+    artifacts:
+      - ios/App/build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
+
+    publishing:
+      # ビルドが終わったら結果をメールで受け取る(任意。不要なら削除してOK)
+      email:
+        recipients:
+          - sekiyubusi@gmail.com
+        notify:
+          success: true
+          failure: true
+
+      app_store_connect:
+        auth: integration
+        # TestFlightへ自動で提出する(内部テスト用。外部審査には出さない設定)
+        submit_to_testflight: true
+        # まだApp Storeへの本申請はしない
+        submit_to_app_store: false
