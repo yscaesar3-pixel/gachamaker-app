@@ -8,7 +8,7 @@ workflows:
     # 書き換えてください(Team settings > Team integrations > Developer Portal)。
     # 既存のoddiro_asc_keyが同じApple Developerチームで使えるならその名前でOKです。
     integrations:
-      app_store_connect: codemagic
+      app_store_connect: oddiro_asc_key
 
     environment:
       ios_signing:
@@ -18,6 +18,7 @@ workflows:
         # App Store Connectでアプリのレコードを作った後、
         # 「App情報 > Apple ID」に表示される数字に書き換えてください。
         APP_STORE_APPLE_ID: 6801938807
+        BUNDLE_ID: "com.yutaXXX.gachamaker"
         XCODE_PROJECT: "ios/App/App.xcodeproj"
         XCODE_SCHEME: "App"
       node: latest
@@ -34,6 +35,20 @@ workflows:
       - name: Sync web assets into the iOS project
         script: |
           npx cap sync ios
+
+      - name: Set up keychain to be used for code signing
+        script: |
+          keychain initialize
+
+      - name: Fetch signing files
+        script: |
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE \
+            --create
+
+      - name: Add certificates to keychain
+        script: |
+          keychain add-certificates
 
       - name: Set up code signing settings on Xcode project
         script: |
