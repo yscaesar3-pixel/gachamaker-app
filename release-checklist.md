@@ -5,7 +5,14 @@
 - `web-legal/privacy.html` — プライバシーポリシー
 - `web-legal/support.html` — サポートページ
 
-**この2つは、GitHub Pages（`yscaesar3-pixel.github.io`）に他のファイルと同じようにアップロードして公開してください。** 公開後のURLをApp Store Connectの該当欄に入力します（例: `https://yscaesar3-pixel.github.io/gachamaker/privacy.html`）。
+**この2つは、GitHub Pages（`yscaesar3-pixel.github.io`）に他のファイルと同じようにアップロードして公開してください。** `gachamaker-app`フォルダの中に入れる形でOKです。公開後のURLは以下になります。
+
+```
+https://yscaesar3-pixel.github.io/gachamaker-app/privacy.html
+https://yscaesar3-pixel.github.io/gachamaker-app/support.html
+```
+
+このURLをApp Store Connectの該当欄に入力します。
 
 Appleは提出時にこの2つのURLに実際にアクセスし、正常に開けるかを機械的にチェックします。**公開前に提出するとエラーになる**ので、先にアップロード→ブラウザで開けることを確認→App Store Connectに入力、の順番でお願いします。
 
