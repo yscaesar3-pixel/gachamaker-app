@@ -17,7 +17,7 @@ workflows:
       vars:
         # App Store Connectでアプリのレコードを作った後、
         # 「App情報 > Apple ID」に表示される数字に書き換えてください。
-        APP_STORE_APPLE_ID: 0000000000
+        APP_STORE_APPLE_ID: 6801938807
         XCODE_PROJECT: "ios/App/App.xcodeproj"
         XCODE_SCHEME: "App"
       node: latest
