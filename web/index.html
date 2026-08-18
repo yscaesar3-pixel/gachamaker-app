@@ -269,19 +269,17 @@
     position:fixed; left:0; top:0; z-index:40; pointer-events:none;
     filter: drop-shadow(4px 4px 0 rgba(42,27,77,0.7));
   }
-  /* ドーム(ガラス球)の内側に収まるよう、実画像を目視計測して範囲を指定 */
-  .capsules{
+  /* ドーム(不透明)の中央に、現在の個数を大きく表示する */
+  .dome-count{
     position:absolute; left:16%; right:14%; top:23%; bottom:54%;
-    display:flex; flex-wrap:wrap-reverse; align-content:flex-start; justify-content:center; gap:2px;
-    overflow:hidden;
+    display:flex; align-items:center; justify-content:center;
+    font-family:"DotGothic16",monospace; font-weight:700;
+    font-size: clamp(28px, 12vw, 52px);
+    color: var(--ink);
+    text-shadow: 1px 1px 0 rgba(255,255,255,0.5);
+    transition: transform .2s cubic-bezier(.34,1.56,.64,1);
   }
-  .capsule-img{
-    width: var(--capsule-size, 15%); aspect-ratio:1/1; object-fit:contain;
-    animation: pop .25s cubic-bezier(.34,1.56,.64,1);
-    filter: drop-shadow(0 2px 2px rgba(0,0,0,0.25));
-    transition: transform .38s cubic-bezier(.45,0,.55,1), width .3s ease;
-  }
-  @keyframes pop{ from{ transform: scale(0); } to{ transform: scale(1); } }
+  .dome-count.bump{ transform: scale(1.25); }
 
   .capsule-count{
     text-align:center; margin-top:14px; font-size: 14px; color: var(--on-grad); opacity:.92;
@@ -583,7 +581,7 @@
     <div class="machine-wrap">
       <div class="machine" id="roomMachine">
         <img class="mascot-img" src="assets/mascot_empty.png" alt="ガチャマシン">
-        <div class="capsules" id="roomCapsules"></div>
+        <div class="dome-count" id="roomDomeCount">0</div>
         <img class="crank-real" src="assets/handle.png" alt="">
       </div>
       <div class="capsule-count"><b id="candidateCountText">0</b> 個のカプセル</div>
@@ -611,7 +609,6 @@
   <section class="screen draw-screen" id="screen-draw">
     <div class="machine" id="drawMachine">
       <img class="mascot-img" src="assets/mascot_empty.png" alt="ガチャマシン">
-      <div class="capsules" id="drawCapsules"></div>
       <img class="crank-real" id="crankReal" src="assets/handle.png" alt="">
     </div>
     <div class="draw-caption" id="drawCaption"></div>
@@ -675,7 +672,10 @@ const CONFIG = {
 // AdMob・Service Worker registration・ホスト機能の出し分けなど、
 // ネイティブ専用/Web専用の処理はすべてこれで判定する(仕様2: Web版はガチャ作成・ホスト機能・広告を持たない)。
 const isNativeApp = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
-const IS_HOST_CAPABLE_PLATFORM = isNativeApp;
+// デバッグ用: ブラウザのURLに ?debug=host を付けた時だけ、Web版でもホスト機能を使えるようにする。
+// (演出確認のためだけの裏道。UIからは一切リンクしない。通常のWeb版利用者には影響しない)
+const DEBUG_FORCE_HOST = new URLSearchParams(location.search).get("debug") === "host";
+const IS_HOST_CAPABLE_PLATFORM = isNativeApp || DEBUG_FORCE_HOST;
 
 const ADMOB_CONFIG = {
   BANNER_AD_UNIT_ID: "ca-app-pub-8174756915786797/9166736089",
@@ -879,29 +879,15 @@ const CAPSULE_IMAGES = [
 function capsuleImage(seed){
   return CAPSULE_IMAGES[seed % CAPSULE_IMAGES.length];
 }
-// 候補数が増えるほど1個あたりを小さくして、ドーム内に収まる個数を増やす
-function capsuleSizeForCount(count){
-  if (count <= 12) return 16;
-  if (count <= 24) return 12.5;
-  if (count <= 40) return 10;
-  if (count <= 60) return 8;
-  if (count <= 90) return 6.5;
-  return 5.5;
-}
-function renderCapsules(container, count){
-  const el = typeof container === "string" ? $(container) : container;
-  el.style.setProperty("--capsule-size", capsuleSizeForCount(count) + "%");
-  const current = el.children.length;
-  if (count > current){
-    for (let i = current; i < Math.min(count, 150); i++){
-      const c = document.createElement("img");
-      c.className = "capsule-img";
-      c.src = capsuleImage(i);
-      c.alt = "";
-      el.appendChild(c);
-    }
-  } else if (count < current){
-    while (el.children.length > count) el.removeChild(el.lastChild);
+// ドーム中央の個数表示を更新する。数が変わった瞬間だけ軽くバウンドさせる。
+function updateDomeCount(elId, count){
+  const el = $(elId);
+  if (!el) return;
+  if (el.textContent !== String(count)){
+    el.textContent = count;
+    el.classList.remove("bump");
+    void el.offsetWidth; // reflowを挟んでアニメーションを再トリガーする
+    el.classList.add("bump");
   }
 }
 
@@ -951,7 +937,7 @@ function subscribeRoom(roomId){
     })
     .on("broadcast", { event: "participant_online_changed" }, () => refreshResume())
     .on("broadcast", { event: "nickname_changed" }, () => refreshResume())
-    .on("broadcast", { event: "candidate_added" }, async () => { await spawnFallingCapsule(); refreshResume(); })
+    .on("broadcast", { event: "candidate_added" }, async () => { await spawnFallingCapsule((state.room?.candidateCount || 0) + 1); refreshResume(); })
     .on("broadcast", { event: "candidate_removed" }, () => refreshResume())
     .on("broadcast", { event: "room_status_changed" }, (msg) => {
       if (msg.payload.status === "finished"){
@@ -1166,8 +1152,8 @@ function renderRoom(){
     strip.appendChild(av);
   });
 
-  // ガチャ本体
-  renderCapsules("roomCapsules", room.candidateCount);
+  // ガチャ本体(ドームは不透明なので、中央に個数だけ表示する)
+  updateDomeCount("roomDomeCount", room.candidateCount);
   $("candidateCountText").textContent = room.candidateCount;
 
   // 候補リスト
@@ -1211,7 +1197,7 @@ $("btnAddCandidate").onclick = async () => {
     await callFunction("add-candidate", { text });
     $("inputCandidate").value = "";
     vibrate(15);
-    await spawnFallingCapsule();
+    await spawnFallingCapsule((state.room?.candidateCount || 0) + 1);
     await refreshResume();
   }catch(err){
     $("candidateError").textContent = err.message || "うまく送れませんでした。もう一度試してみてね";
@@ -1220,14 +1206,13 @@ $("btnAddCandidate").onclick = async () => {
   }
 };
 
-function spawnFallingCapsule(){
+function spawnFallingCapsule(nextCount){
   return new Promise((resolve) => {
     const machine = $("roomMachine");
-    const capsulesEl = $("roomCapsules");
     if (!machine){ resolve(); return; }
 
-    // 実際にドームへ追加されるカプセルと同じ色になるよう、同じインデックスで色を決める
-    const seedIndex = capsulesEl ? capsulesEl.children.length : 0;
+    // 色は候補数に応じて一巡させる(見た目のバリエーションのためだけで、意味はない)
+    const seedIndex = Math.max(nextCount - 1, 0);
 
     const capsule = document.createElement("img");
     capsule.src = capsuleImage(seedIndex);
@@ -1236,26 +1221,23 @@ function spawnFallingCapsule(){
     machine.appendChild(capsule);
 
     const machineRect = machine.getBoundingClientRect();
-    const sizePct = capsuleSizeForCount(seedIndex + 1); // 着地後と同じサイズ感で降らせる
-    const size = machineRect.width * (sizePct / 100);
+    const size = machineRect.width * 0.16;
     capsule.style.width = size + "px";
     const startX = machineRect.width * 0.5 - size / 2;
     capsule.style.left = startX + "px";
 
-    // 積み重なるほど着地位置が上がっていく(カプセルが増えていく実感。仕様13)
-    const fillRatio = Math.min(seedIndex / 24, 1);
-    const landingY = machineRect.height * (0.54 - fillRatio * 0.28);
+    // ドーム(不透明)の中央あたりで消える = 中に入った、という演出
+    const landingY = machineRect.height * 0.34;
 
     let y = -size * 1.4;
     let vy = 0;
     let rot = Math.random() * 40 - 20;
     let vrot = 180 + Math.random() * 120;
     const gravity = 4200; // px/s^2 相当の疑似重力
-    let bounces = 0;
-    const maxBounces = 2;
     let lastT = null;
 
     capsule.style.transform = `translateY(${y}px) rotate(${rot}deg)`;
+    capsule.style.opacity = "1";
 
     function frame(t){
       if (lastT === null) lastT = t;
@@ -1269,14 +1251,7 @@ function spawnFallingCapsule(){
       let settled = false;
       if (y >= landingY){
         y = landingY;
-        if (bounces < maxBounces && Math.abs(vy) > 80){
-          vy *= -0.4;      // 跳ね返り(減衰)
-          vrot *= 0.5;
-          bounces++;
-        } else {
-          vy = 0;
-          settled = true;
-        }
+        settled = true;
       }
 
       capsule.style.transform = `translateY(${y}px) rotate(${rot}deg)`;
@@ -1284,10 +1259,15 @@ function spawnFallingCapsule(){
       if (!settled){
         requestAnimationFrame(frame);
       } else {
+        // ドームに吸い込まれるように縮んで消える
+        capsule.style.transition = "transform .2s ease, opacity .2s ease";
+        capsule.style.transform += " scale(0.3)";
+        capsule.style.opacity = "0";
+        updateDomeCount("roomDomeCount", nextCount);
         setTimeout(() => {
           capsule.remove();
           resolve();
-        }, 90);
+        }, 200);
       }
     }
     requestAnimationFrame(frame);
@@ -1428,35 +1408,6 @@ $("modalBackdrop").onclick = (e) => { if (e.target === $("modalBackdrop")) close
 /* ============================================================
    抽選演出
 ============================================================ */
-let agitateInterval = null;
-/**
- * カプセルを1個ずつ別々にランダムな位置・角度へなめらかに動かし続ける「もみくちゃ」演出。
- * CSS側の .capsule-img{ transition: transform .38s } が補間してくれるので、
- * ここでは一定間隔で目標値を変えるだけでよい。
- */
-function startAgitateJumble(containerId){
-  stopAgitateJumble(containerId);
-  const el = $(containerId);
-  if (!el) return;
-  const jostle = () => {
-    Array.from(el.children).forEach((c) => {
-      const tx = (Math.random() * 14 - 7).toFixed(1);
-      const ty = (Math.random() * 12 - 6).toFixed(1);
-      const rot = (Math.random() * 50 - 25).toFixed(1);
-      c.style.transform = `translate(${tx}px, ${ty}px) rotate(${rot}deg)`;
-    });
-  };
-  jostle();
-  agitateInterval = setInterval(jostle, 380);
-}
-function stopAgitateJumble(containerId){
-  if (agitateInterval){ clearInterval(agitateInterval); agitateInterval = null; }
-  const el = $(containerId);
-  if (el){
-    Array.from(el.children).forEach((c) => { c.style.transform = ""; });
-  }
-}
-
 let currentDrawCapsuleSrc = CAPSULE_IMAGES[0];
 
 function playDrawAnimation(payload){
@@ -1483,18 +1434,15 @@ function playDrawAnimation(payload){
 
   machine.className = "machine phase-intro";
   caption.textContent = "ガチャ、スタート！";
-  renderCapsules("drawCapsules", state.room?.candidateCount || 12);
   vibrate(20);
 
   setTimeout(() => {
     machine.className = "machine phase-agitate";
     caption.textContent = "カプセルをシャカシャカ…";
     vibrate([15,20,15,20,15]);
-    startAgitateJumble("drawCapsules");
   }, T_INTRO);
 
   setTimeout(() => {
-    stopAgitateJumble("drawCapsules");
     machine.className = "machine"; // 攪拌を止めてハンドルに注目させる
     caption.textContent = "ハンドルを回して…";
     crank.classList.add("spinning");
@@ -1707,7 +1655,6 @@ function applyResume(res){
 function exitToHome(){
   clearSession();
   stopHeartbeat();
-  stopAgitateJumble("drawCapsules");
   removeEjectedCapsule();
   if (state.channel){ supabaseClient?.removeChannel(state.channel); state.channel = null; }
   showScreen("screen-home");
